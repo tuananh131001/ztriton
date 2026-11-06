@@ -8,6 +8,13 @@
 #                   JELLYFIN_URL / JELLYFIN_USER / JELLYFIN_PASSWORD from the
 #                   environment or the git-ignored .env (cp .env.example .env)
 #
+# Keychain access is tied to the signer's Team ID, or for ad-hoc code to the
+# per-build cdhash, so unsigned rebuilds re-prompt for the login password.
+# With an "Apple Development" identity (free Apple ID, Xcode › Settings ›
+# Accounts), `cargo run`/`cargo test` (runner in .cargo/config.toml) and
+# `make app` sign with it, and one "Always Allow" survives rebuilds.
+# SIGN_IDENTITY / ZTRITON_SIGN_IDENTITY override the identity.
+#
 # The app itself never reads .env: its login is entered on the sign-in
 # screen and kept in the macOS Keychain (service dev.ztriton.player).
 #
@@ -20,6 +27,8 @@ VERSION    := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 APP_DIR    ?= $(HOME)/Applications
 BIN_DIR    ?= $(HOME)/.local/bin
 CONFIG_DIR ?= $(HOME)/Library/Application Support/ztriton
+
+SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning | awk -F'"' '/"Apple Development: /{print $$2; exit}')
 
 TARGET_BIN := target/release/$(APP_NAME)
 BUNDLE     := dist/$(APP_NAME).app
@@ -56,7 +65,12 @@ app: build
 	  '  <key>NSHighResolutionCapable</key><true/>' \
 	  '  <key>NSLocalNetworkUsageDescription</key><string>ztriton streams video from your Jellyfin server.</string>' \
 	  '</dict></plist>' > "$(BUNDLE)/Contents/Info.plist"
-	@codesign --force --sign - "$(BUNDLE)" >/dev/null 2>&1 && echo "ad-hoc signed" || echo "warning: codesign failed (app still runs locally)"
+	@if [ -n "$(SIGN_IDENTITY)" ]; then \
+		codesign --force --sign "$(SIGN_IDENTITY)" --identifier $(BUNDLE_ID) "$(BUNDLE)" && echo "signed with $(SIGN_IDENTITY)"; \
+	else \
+		codesign --force --sign - "$(BUNDLE)" >/dev/null 2>&1 && echo "ad-hoc signed (add an Apple Development identity to stop Keychain prompts after rebuilds)" \
+			|| echo "warning: codesign failed (app still runs locally)"; \
+	fi
 	@plutil -lint "$(BUNDLE)/Contents/Info.plist" >/dev/null
 	@echo "built $(BUNDLE) (v$(VERSION))"
 

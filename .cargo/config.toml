@@ -1,0 +1,13 @@
+# The Keychain partition list ties the saved login to the signer's Team ID, or,
+# for ad-hoc/self-signed code, to the per-build cdhash, so without a Team ID
+# macOS re-asks for the login password after every rebuild. Re-signing with an
+# "Apple Development" identity (free Apple ID, created in Xcode › Settings ›
+# Accounts) and a fixed identifier before `cargo run` / `cargo test` execute a
+# binary keeps one "Always Allow" valid. ZTRITON_SIGN_IDENTITY overrides the
+# identity; without one, binaries run as-is.
+[target.'cfg(target_os = "macos")']
+runner = [
+    "sh",
+    "-c",
+    '''identity="${ZTRITON_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/"Apple Development: /{print $2; exit}')}"; if [ -n "$identity" ]; then codesign --force --sign "$identity" --identifier dev.ztriton.player "$0" || exit 1; fi; exec "$0" "$@"''',
+]
