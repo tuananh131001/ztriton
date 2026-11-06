@@ -83,8 +83,8 @@ impl ZtritonApp {
                         Some((s, t)) => Some(Jellyfin::resume_session(&s.server, &t.user_id, &t.token).map_err(|e| {
                             // Only a rejected token is forgotten; a server that is merely down keeps it.
                             let revoked = format!("{e:#}").contains("status code 401");
-                            if revoked {
-                                let _ = keychain::forget_session();
+                            if revoked && let Err(e) = keychain::forget_session() {
+                                log::warn!("could not forget revoked session: {e:#}");
                             }
                             (e, revoked)
                         })),
@@ -109,7 +109,7 @@ impl ZtritonApp {
                 }
                 Err(e) => this.show_login(None, Some(format!("{e:#}")), window, cx),
             })
-            .ok();
+            .log_err();
         })
         .detach();
         this
@@ -153,7 +153,7 @@ impl ZtritonApp {
         });
         cx.spawn_in(window, async move |this, cx| {
             let prefill = task.await;
-            this.update_in(cx, |this, window, cx| this.show_login(prefill, None, window, cx)).ok();
+            this.update_in(cx, |this, window, cx| this.show_login(prefill, None, window, cx)).log_err();
         })
         .detach();
         self.shelves.clear();
@@ -210,14 +210,14 @@ impl ZtritonApp {
                 }
                 cx.notify();
             })
-            .ok();
+            .log_err();
         })
         .detach();
     }
 
     fn maybe_autoplay(&mut self, cx: &mut Context<Self>) {
         let Some(query) = self.autoplay.take() else { return };
-        let jf = self.jf.clone().unwrap();
+        let Some(jf) = self.jf.clone() else { return };
         cx.spawn(async move |this, cx| {
             // Let the home screen render (and be screenshotted) first.
             cx.background_executor().timer(Duration::from_secs(4)).await;
@@ -235,18 +235,18 @@ impl ZtritonApp {
                 this.stack.push(Screen::Detail(item.clone()));
                 cx.notify();
             })
-            .ok();
+            .log_err();
             cx.background_executor().timer(Duration::from_secs(4)).await;
             cx.update(|cx| {
                 if let Some(window) = cx.windows().first().copied() {
                     window
                         .update(cx, |_, window, cx| {
-                            this.update(cx, |this, cx| this.play(item, window, cx)).ok();
+                            this.update(cx, |this, cx| this.play(item, window, cx)).log_err();
                         })
-                        .ok();
+                        .log_err();
                 }
             })
-            .ok();
+            .log_err();
         })
         .detach();
     }
@@ -258,7 +258,7 @@ impl ZtritonApp {
             Some(_) => return None,
             None => {}
         }
-        self.images.insert(url.clone(), ImgState::Loading);
+        drop(self.images.insert(url.clone(), ImgState::Loading));
         let jf = self.jf.clone()?;
         cx.spawn(async move |this, cx| {
             let u = url.clone();
@@ -267,16 +267,14 @@ impl ZtritonApp {
                 .spawn(async move { decode_render_image(&jf.fetch_bytes(&u)?, max_w) })
                 .await;
             this.update(cx, |this, cx| {
-                this.images.insert(
-                    url,
-                    match res {
-                        Ok(i) => ImgState::Ready(i),
-                        Err(_) => ImgState::Failed,
-                    },
-                );
+                let state = match res {
+                    Ok(i) => ImgState::Ready(i),
+                    Err(_) => ImgState::Failed,
+                };
+                drop(this.images.insert(url, state));
                 cx.notify();
             })
-            .ok();
+            .log_err();
         })
         .detach();
         None
@@ -285,8 +283,9 @@ impl ZtritonApp {
     fn open(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
         if item.is_playable() {
             self.stack.push(Screen::Detail(item));
-        } else if item.is_folder {
-            let jf = self.jf.clone().unwrap();
+        } else if item.is_folder
+            && let Some(jf) = self.jf.clone()
+        {
             let id = item.id.clone();
             self.stack.push(Screen::Library { parent: item, items: None });
             let depth = self.stack.len();
@@ -306,7 +305,7 @@ impl ZtritonApp {
                     }
                     cx.notify();
                 })
-                .ok();
+                .log_err();
             })
             .detach();
         }
@@ -332,7 +331,7 @@ impl ZtritonApp {
 
     fn pop(&mut self, cx: &mut Context<Self>) {
         if self.stack.len() > 1 {
-            self.stack.pop();
+            drop(self.stack.pop());
         }
         cx.notify();
     }
@@ -351,15 +350,16 @@ impl ZtritonApp {
     fn poster_card(&mut self, item: &Item, wide: bool, cx: &mut Context<Self>) -> AnyElement {
         let (w, h) = if wide { (WIDE_W, WIDE_H) } else { (POSTER_W, POSTER_H) };
         let kind = if wide { "Thumb" } else { "Primary" };
+        let image_width = retina_pixels(w);
         let url = self
             .jf
             .as_ref()
             .and_then(|jf| {
-                jf.image_url(item, kind, (w * 2.) as u32)
-                    .or_else(|| jf.image_url(item, "Primary", (w * 2.) as u32))
-                    .or_else(|| jf.image_url(item, "Backdrop", (w * 2.) as u32))
+                jf.image_url(item, kind, image_width)
+                    .or_else(|| jf.image_url(item, "Primary", image_width))
+                    .or_else(|| jf.image_url(item, "Backdrop", image_width))
             });
-        let image = self.image(url, (w * 2.) as u32, cx);
+        let image = self.image(url, image_width, cx);
         let progress = item.user_data.as_ref().and_then(|u| u.played_percentage).unwrap_or(0.0);
         let played = item.user_data.as_ref().map(|u| u.played).unwrap_or(false);
         let it = item.clone();
@@ -717,12 +717,12 @@ impl Render for ZtritonApp {
             window.set_window_title(&title);
             self.title = title;
         }
-        let content = match &screen {
-            _ if self.login.is_some() => self.login.clone().unwrap().into_any_element(),
-            Screen::Home => self.render_home(cx),
-            Screen::Library { parent, items } => self.render_library(parent, items, cx),
-            Screen::Detail(item) => self.render_detail(item, cx),
-            Screen::Player(view) => view.clone().into_any_element(),
+        let content = match (&self.login, &screen) {
+            (Some(login), _) => login.clone().into_any_element(),
+            (None, Screen::Home) => self.render_home(cx),
+            (None, Screen::Library { parent, items }) => self.render_library(parent, items, cx),
+            (None, Screen::Detail(item)) => self.render_detail(item, cx),
+            (None, Screen::Player(view)) => view.clone().into_any_element(),
         };
         div()
             .key_context("Ztriton")
@@ -735,4 +735,9 @@ impl Render for ZtritonApp {
             .font_family(".SystemUIFont")
             .child(content)
     }
+}
+
+/// Pixel width to request for an image shown `points` wide on a 2x display.
+fn retina_pixels(points: f32) -> u32 {
+    (points * 2.0).round() as u32
 }

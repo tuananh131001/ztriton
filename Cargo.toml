@@ -27,3 +27,16 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "deny"
+unused_crate_dependencies = "warn"
+unused_results = "deny"
+missing_debug_implementations = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"

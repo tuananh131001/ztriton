@@ -1,3 +1,5 @@
+//! Points the linker (and the runtime rpath) at the libmpv dylib.
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=MPV_LIB_DIR");

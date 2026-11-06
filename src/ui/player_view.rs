@@ -96,7 +96,8 @@ impl PlayerView {
                 // Render thread -> UI wakeup.
                 let (tx, mut rx) = futures::channel::mpsc::unbounded::<()>();
                 player.set_frame_callback(move || {
-                    let _ = tx.unbounded_send(());
+                    // Fails only once the view is gone and the player is shutting down.
+                    drop(tx.unbounded_send(()));
                 });
                 let url = jf.stream_url(&item.id);
                 let start = item.resume_secs();
@@ -125,7 +126,7 @@ impl PlayerView {
                         this.update(cx, |view, cx| {
                             view.start_playback(&url, start, &jf.media_auth_header(), subtitles, preferences, cx)
                         })
-                        .ok();
+                        .log_err();
                     }
                 })
                 .detach();
@@ -252,7 +253,7 @@ impl PlayerView {
             if let Err(e) = result {
                 log::warn!("saving subtitle preference: {e:#}");
                 this.update(cx, |view, cx| view.flash(format!("Couldn't remember subtitles: {e}"), cx))
-                    .ok();
+                    .log_err();
             }
         })
         .detach();
@@ -335,7 +336,7 @@ impl PlayerView {
             let exec = cx.background_executor().clone();
             let timer = |d| exec.timer(d);
             timer(t(8)).await;
-            this.update(cx, |v, _| v.dump_presented_frame("gpui_frame_1.png")).ok();
+            this.update(cx, |v, _| v.dump_presented_frame("gpui_frame_1.png")).log_err();
             proof_log("proof: marker playing-1");
             timer(t(4)).await;
             // Server-side confirmation via /Sessions.
@@ -344,11 +345,14 @@ impl PlayerView {
                 match res {
                     Ok(json) => {
                         let s = serde_json::to_string_pretty(&json).unwrap_or_default();
-                        let _ = std::fs::write(crate::proof_dir().join("sessions.json"), &s);
-                        let now = json.as_array().and_then(|a| a.first()).cloned().unwrap_or_default();
+                        std::fs::write(crate::proof_dir().join("sessions.json"), &s).log_err();
+                        let field = |pointer: &str| json.pointer(&format!("/0{pointer}")).cloned().unwrap_or_default();
                         proof_log(format!(
                             "proof: server /Sessions -> client={} device={} NowPlayingItem={} PositionTicks={}",
-                            now["Client"], now["DeviceName"], now["NowPlayingItem"]["Name"], now["PlayState"]["PositionTicks"]
+                            field("/Client"),
+                            field("/DeviceName"),
+                            field("/NowPlayingItem/Name"),
+                            field("/PlayState/PositionTicks")
                         ));
                     }
                     Err(e) => proof_log(format!("proof: sessions query failed: {e}")),
@@ -363,9 +367,9 @@ impl PlayerView {
                     v.flash("Seek → 60%", cx);
                 }
             })
-            .ok();
+            .log_err();
             timer(t(6)).await;
-            this.update(cx, |v, _| v.dump_presented_frame("gpui_frame_2.png")).ok();
+            this.update(cx, |v, _| v.dump_presented_frame("gpui_frame_2.png")).log_err();
             proof_log("proof: marker playing-2");
             this.update(cx, |v, cx| {
                 if let Some(p) = &v.player {
@@ -374,7 +378,7 @@ impl PlayerView {
                 v.last_activity = Instant::now();
                 cx.notify();
             })
-            .ok();
+            .log_err();
             timer(t(2)).await;
             proof_log("proof: marker paused-overlay");
             timer(t(4)).await;
@@ -384,21 +388,21 @@ impl PlayerView {
                 }
                 cx.notify();
             })
-            .ok();
+            .log_err();
             timer(t(3)).await;
             proof_log("proof: done");
             if std::env::var("ZTRITON_PROOF_QUIT").is_ok() {
                 cx.update(|cx| {
                     if let Some(w) = cx.windows().first().copied() {
                         w.update(cx, |_, window, cx| {
-                            this.update(cx, |v, cx| v.close(&ClosePlayer, Some(window), cx)).ok();
+                            this.update(cx, |v, cx| v.close(&ClosePlayer, Some(window), cx)).log_err();
                         })
-                        .ok();
+                        .log_err();
                     }
                 })
-                .ok();
+                .log_err();
                 timer(t(2)).await;
-                cx.update(|cx| cx.quit()).ok();
+                cx.update(|cx| cx.quit()).log_err();
             }
         })
         .detach();
@@ -411,9 +415,9 @@ impl PlayerView {
             return;
         };
         let size = image.size(0);
-        let (w, h) = (size.width.0 as u32, size.height.0 as u32);
+        let (w, h) = (u32::try_from(size.width.0).unwrap_or(0), u32::try_from(size.height.0).unwrap_or(0));
         let mut rgba = image.as_bytes(0).unwrap_or_default().to_vec();
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
         let path = crate::proof_dir().join(name);
@@ -537,7 +541,7 @@ impl PlayerView {
             t.detach();
         }
         if let (Some(window), Some(img)) = (window, self.image.take()) {
-            let _ = window.drop_image(img);
+            window.drop_image(img).log_err();
         }
         cx.emit(Closed);
     }
@@ -555,7 +559,7 @@ impl PlayerView {
         let new = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buf)]));
         if let Some(old) = self.image.replace(new) {
             // Free the previous frame's atlas texture.
-            let _ = window.drop_image(old);
+            window.drop_image(old).log_err();
         }
         if self.presented == 0 {
             proof_log(format!("player: first frame presented via GPUI ({}x{})", frame.width, frame.height));

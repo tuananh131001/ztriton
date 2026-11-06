@@ -1,3 +1,9 @@
+//! ztriton: a native macOS Jellyfin client.
+#![expect(
+    unused_crate_dependencies,
+    reason = "Cargo shares one dependency list between the library, the app binary and the tests"
+)]
+
 mod ui;
 
 use gpui::{
@@ -5,15 +11,20 @@ use gpui::{
     WindowBounds, WindowOptions, point, px, size,
 };
 use std::path::PathBuf;
+use ui::LogErr;
 use ui::app::{Back, Quit, SignOut, ToggleFullscreen, ZtritonApp};
 
+/// `ZTRITON_PROOF=1`: scripted run that records verification artifacts.
 pub fn proof_mode() -> bool {
     std::env::var("ZTRITON_PROOF").is_ok_and(|v| v == "1")
 }
 
+/// Where proof mode writes its artifacts.
 pub fn proof_dir() -> PathBuf {
     let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("proof/playback");
-    let _ = std::fs::create_dir_all(&d);
+    if let Err(e) = std::fs::create_dir_all(&d) {
+        log::warn!("could not create {}: {e}", d.display());
+    }
     d
 }
 
@@ -27,7 +38,11 @@ fn main() {
         .map(|i| args.get(i + 1).cloned().unwrap_or_else(|| "first".into()));
 
     if proof_mode() {
-        let _ = std::fs::remove_file(proof_dir().join("run.log"));
+        if let Err(e) = std::fs::remove_file(proof_dir().join("run.log"))
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("could not clear the previous proof log: {e}");
+        }
         let (maj, min) = ztriton::player::client_api_version();
         ui::proof_log(format!(
             "start: ztriton {} | rustc target {} | libmpv client API {maj}.{min} | autoplay={autoplay:?}",
@@ -48,7 +63,7 @@ fn main() {
         .detach();
         cx.on_action(|_: &ToggleFullscreen, cx| {
             if let Some(w) = cx.active_window() {
-                let _ = w.update(cx, |_, window, _| window.toggle_fullscreen());
+                w.update(cx, |_, window, _| window.toggle_fullscreen()).log_err();
             }
         });
         cx.bind_keys([
@@ -69,7 +84,7 @@ fn main() {
             origin: point(px(60.), px(60.)),
             size: size(px(1280.), px(760.)),
         };
-        cx.open_window(
+        let opened = cx.open_window(
             WindowOptions {
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from("ztriton")),
@@ -80,7 +95,10 @@ fn main() {
                 ..Default::default()
             },
             |window, cx| cx.new(|cx| ZtritonApp::new(autoplay.clone(), window, cx)),
-        )
-        .expect("open window");
+        );
+        if let Err(e) = opened {
+            log::error!("could not open the main window: {e:#}");
+            cx.quit();
+        }
     });
 }

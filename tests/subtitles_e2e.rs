@@ -2,6 +2,10 @@
 //! chosen, and a remembered choice is re-applied to the next episode.
 //! Uses the app's saved Keychain session (read-only) or JELLYFIN_URL/USER/PASSWORD.
 //! Run: cargo test --release --test subtitles_e2e -- --nocapture
+#![expect(
+    unused_crate_dependencies,
+    reason = "integration tests see every dependency of the package"
+)]
 
 use anyhow::{Context, Result, anyhow, ensure};
 use std::time::{Duration, Instant};
@@ -67,8 +71,12 @@ fn open(jf: &Jellyfin, search: &str, preference: Option<SubtitlePreference>, say
 }
 
 #[test]
+#[expect(unsafe_code, reason = "set_var gives the test its own device id")]
 fn external_subtitles_choose_and_remember() -> Result<()> {
-    let _ = env_logger::builder().is_test(true).try_init();
+    if let Err(e) = env_logger::builder().is_test(true).try_init() {
+        eprintln!("logger already initialised: {e}");
+    }
+    // SAFETY: set before this test starts any threads that read the environment.
     unsafe { std::env::set_var("ZTRITON_DEVICE_ID", "ztriton-e2e-test") };
     let Some(jf) = connect()? else {
         eprintln!("SKIP: no Jellyfin session (sign in to the app or set JELLYFIN_URL)");

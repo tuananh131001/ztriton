@@ -68,7 +68,9 @@ impl LoginView {
         let fields = self.fields();
         let cur = fields.iter().position(|f| f.focus_handle(cx).is_focused(window)).unwrap_or(0) as isize;
         let next = (cur + delta).rem_euclid(fields.len() as isize) as usize;
-        window.focus(&fields[next].focus_handle(cx));
+        if let Some(field) = fields.get(next) {
+            window.focus(&field.focus_handle(cx));
+        }
     }
 
     fn focus_next(&mut self, _: &FocusNext, window: &mut Window, cx: &mut Context<Self>) {
@@ -140,7 +142,7 @@ impl LoginView {
                 }
                 cx.notify();
             })
-            .ok();
+            .log_err();
         })
         .detach();
     }

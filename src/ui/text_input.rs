@@ -82,7 +82,7 @@ impl TextInput {
 
     /// Byte offset in `content` -> byte offset in the displayed string.
     fn display_offset(&self, offset: usize) -> usize {
-        if self.masked { self.content[..offset].chars().count() * MASK.len() } else { offset }
+        if self.masked { self.content.get(..offset).unwrap_or_default().chars().count() * MASK.len() } else { offset }
     }
 
     /// Byte offset in the displayed string -> byte offset in `content`.
@@ -175,13 +175,13 @@ impl TextInput {
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if !self.masked && !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(self.content[self.selected_range.clone()].to_string()));
+            cx.write_to_clipboard(ClipboardItem::new_string(self.content.get(self.selected_range.clone()).unwrap_or_default().to_string()));
         }
     }
 
     fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
         if !self.masked && !self.selected_range.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(self.content[self.selected_range.clone()].to_string()));
+            cx.write_to_clipboard(ClipboardItem::new_string(self.content.get(self.selected_range.clone()).unwrap_or_default().to_string()));
             self.replace_text_in_range(None, "", window, cx)
         }
     }
@@ -279,8 +279,9 @@ impl EntityInputHandler for TextInput {
         _: &mut Context<Self>,
     ) -> Option<String> {
         let range = self.range_from_utf16(&range_utf16);
-        actual_range.replace(self.range_to_utf16(&range));
-        Some(if self.masked { MASK.repeat(self.content[range].chars().count()) } else { self.content[range].to_string() })
+        *actual_range = Some(self.range_to_utf16(&range));
+        let text = self.content.get(range).unwrap_or_default();
+        Some(if self.masked { MASK.repeat(text.chars().count()) } else { text.to_string() })
     }
 
     fn selected_text_range(&mut self, _: bool, _: &mut Window, _: &mut Context<Self>) -> Option<UTF16Selection> {
@@ -307,9 +308,11 @@ impl EntityInputHandler for TextInput {
             .map(|r| self.range_from_utf16(r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
-        self.content = (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..]).into();
+        self.content = (self.content.get(..range.start).unwrap_or_default().to_owned()
+            + new_text
+            + self.content.get(range.end..).unwrap_or_default()).into();
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
-        self.marked_range.take();
+        self.marked_range = None;
         cx.notify();
     }
 
@@ -326,7 +329,9 @@ impl EntityInputHandler for TextInput {
             .map(|r| self.range_from_utf16(r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
-        self.content = (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..]).into();
+        self.content = (self.content.get(..range.start).unwrap_or_default().to_owned()
+            + new_text
+            + self.content.get(range.end..).unwrap_or_default()).into();
         self.marked_range = (!new_text.is_empty()).then(|| range.start..range.start + new_text.len());
         self.selected_range = new_selected_range_utf16
             .as_ref()
@@ -485,8 +490,10 @@ impl Element for TextElement {
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection)
         }
-        let line = prepaint.line.take().unwrap();
-        line.paint(bounds.origin, window.line_height(), window, cx).unwrap();
+        let Some(line) = prepaint.line.take() else { return };
+        if let Err(e) = line.paint(bounds.origin, window.line_height(), window, cx) {
+            log::error!("text input paint failed: {e:#}");
+        }
         if focus_handle.is_focused(window)
             && let Some(cursor) = prepaint.cursor.take()
         {

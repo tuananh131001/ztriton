@@ -6,8 +6,10 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Settings remembered between launches.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Preferences {
+    /// Last subtitle choice; `None` until the user picks one.
     #[serde(default)]
     pub subtitle: Option<SubtitlePreference>,
 }
@@ -27,6 +29,7 @@ impl Preferences {
         }
     }
 
+    /// Write to disk atomically.
     pub fn save(&self) -> Result<()> {
         let path = path();
         if let Some(dir) = path.parent() {
@@ -39,6 +42,7 @@ impl Preferences {
         std::fs::rename(&temporary, &path).with_context(|| format!("write {}", path.display()))
     }
 
+    /// Update only the subtitle choice, keeping other saved settings.
     pub fn save_subtitle(subtitle: SubtitlePreference) -> Result<()> {
         let mut preferences = Self::load().unwrap_or_else(|e| {
             log::warn!("ignoring unreadable preferences: {e:#}");

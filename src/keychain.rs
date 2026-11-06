@@ -20,9 +20,12 @@ pub fn service() -> String {
     std::env::var("ZTRITON_KEYCHAIN_SERVICE").unwrap_or_else(|_| "dev.ztriton.player".into())
 }
 
+/// The login details kept between launches.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedLogin {
+    /// Server URL.
     pub server: String,
+    /// Username, pre-filled on the sign-in screen.
     pub username: String,
     /// Present only while signed in with "Remember me".
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -30,8 +33,11 @@ pub struct SavedLogin {
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A Jellyfin access token and the user it belongs to.
 pub struct SavedSession {
+    /// Id of the signed-in user.
     pub user_id: String,
+    /// Jellyfin access token.
     pub token: String,
 }
 
@@ -81,32 +87,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn roundtrip_in_real_keychain() {
+    #[expect(unsafe_code, reason = "set_var points the test at a throwaway Keychain item")]
+    fn roundtrip_in_real_keychain() -> Result<()> {
+        // SAFETY: set before this test starts any threads that read the environment.
         unsafe { std::env::set_var("ZTRITON_KEYCHAIN_SERVICE", "dev.ztriton.player.unittest") };
-        delete().unwrap();
-        assert_eq!(load().unwrap(), None);
+        delete()?;
+        assert_eq!(load()?, None);
 
         let login = SavedLogin {
             server: "http://example:8096".into(),
             username: "alice".into(),
             session: Some(SavedSession { user_id: "u1".into(), token: "t0k3n".into() }),
         };
-        save(&login).unwrap();
-        assert_eq!(load().unwrap(), Some(login.clone()));
+        save(&login)?;
+        assert_eq!(load()?, Some(login.clone()));
 
         // Overwrite works (set_generic_password updates in place).
         let mut l2 = login.clone();
         l2.username = "bob".into();
-        save(&l2).unwrap();
-        assert_eq!(load().unwrap().unwrap().username, "bob");
+        save(&l2)?;
+        assert_eq!(load()?.context("saved login missing")?.username, "bob");
 
-        forget_session().unwrap();
-        let kept = load().unwrap().unwrap();
+        forget_session()?;
+        let kept = load()?.context("saved login missing")?;
         assert_eq!((kept.server.as_str(), kept.username.as_str(), kept.session), ("http://example:8096", "bob", None));
 
-        delete().unwrap();
-        delete().unwrap(); // idempotent
-        assert_eq!(load().unwrap(), None);
+        delete()?;
+        delete()?; // idempotent
+        assert_eq!(load()?, None);
         assert!(!format!("{login:?}").contains("t0k3n"), "Debug must not print the token");
+        Ok(())
     }
 }

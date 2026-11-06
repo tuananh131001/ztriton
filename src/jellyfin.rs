@@ -35,8 +35,10 @@ pub fn device_id() -> String {
         h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
         id.push_str(&format!("{:016x}", h.finish()));
     }
-    let _ = std::fs::create_dir_all(&dir);
-    let _ = std::fs::write(&path, &id);
+    // Without a saved id every launch registers as a new device, but playback still works.
+    if let Err(e) = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, &id)) {
+        log::warn!("could not save device id to {}: {e}", path.display());
+    }
     id
 }
 
@@ -44,72 +46,112 @@ fn enc(s: &str) -> String {
     url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
 }
 
+/// An authenticated connection to one Jellyfin server.
 #[derive(Clone)]
 pub struct Jellyfin {
+    /// Server URL without a trailing `/`.
     pub base: String,
     token: String,
+    /// Device id sent with every request.
     pub device_id: String,
+    /// Id of the signed-in user.
     pub user_id: String,
     agent: ureq::Agent,
 }
 
+impl std::fmt::Debug for Jellyfin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Jellyfin")
+            .field("base", &self.base)
+            .field("token", &"<redacted>")
+            .field("device_id", &self.device_id)
+            .field("user_id", &self.user_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// A library entry: movie, episode, series, folder or view.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
+    /// Jellyfin item id.
     pub id: String,
+    /// Display name.
     pub name: String,
     #[serde(rename = "Type")]
+    /// Item type, e.g. `"Movie"`, `"Episode"`, `"Series"`.
     pub kind: String,
+    /// Library kind for views, e.g. `"movies"`, `"tvshows"`.
     #[serde(default)]
     pub collection_type: Option<String>,
     #[serde(default)]
+    /// Plot summary.
     pub overview: Option<String>,
     #[serde(default)]
+    /// Release year.
     pub production_year: Option<i32>,
     #[serde(default)]
+    /// Runtime in Jellyfin ticks (100 ns).
     pub run_time_ticks: Option<i64>,
     #[serde(default)]
+    /// Audience rating out of 10.
     pub community_rating: Option<f32>,
     #[serde(default)]
+    /// Content rating, e.g. `"TV-PG"`.
     pub official_rating: Option<String>,
     #[serde(default)]
+    /// Series name, for episodes.
     pub series_name: Option<String>,
     #[serde(default)]
+    /// Season number, for episodes.
     pub parent_index_number: Option<i32>,
     #[serde(default)]
+    /// Episode number, for episodes.
     pub index_number: Option<i32>,
     #[serde(default)]
+    /// Whether the item contains other items.
     pub is_folder: bool,
     #[serde(default)]
+    /// Image type (e.g. `"Primary"`) to cache tag.
     pub image_tags: std::collections::HashMap<String, String>,
     #[serde(default)]
+    /// Cache tags of the backdrop images.
     pub backdrop_image_tags: Vec<String>,
     #[serde(default)]
+    /// Per-user playback state.
     pub user_data: Option<UserData>,
     #[serde(default)]
+    /// Genre names.
     pub genres: Vec<String>,
 }
 
+/// The signed-in user's playback state for an item.
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "PascalCase")]
 pub struct UserData {
     #[serde(default)]
+    /// Resume position in ticks.
     pub playback_position_ticks: i64,
     #[serde(default)]
+    /// How much has been watched, in percent.
     pub played_percentage: Option<f64>,
     #[serde(default)]
+    /// Whether the item is marked as watched.
     pub played: bool,
 }
 
 impl Item {
+    /// Whether the item is a video that can be played directly.
     pub fn is_playable(&self) -> bool {
         matches!(self.kind.as_str(), "Movie" | "Episode" | "Video" | "MusicVideo")
     }
 
+    /// Runtime in seconds.
     pub fn runtime_secs(&self) -> Option<f64> {
         self.run_time_ticks.map(ticks_to_secs)
     }
 
+    /// Where to resume playback, in seconds (0 if unwatched).
     pub fn resume_secs(&self) -> f64 {
         self.user_data
             .as_ref()
@@ -117,6 +159,7 @@ impl Item {
             .unwrap_or(0.0)
     }
 
+    /// Secondary line for the UI: "Series · S1E9" for episodes, else the year.
     pub fn subtitle(&self) -> String {
         match (self.kind.as_str(), &self.series_name) {
             ("Episode", Some(series)) => format!(
@@ -194,10 +237,12 @@ struct PlaybackReport<'a> {
     can_seek: bool,
 }
 
+/// Seconds to Jellyfin ticks (100 ns).
 pub fn secs_to_ticks(s: f64) -> i64 {
     (s * 10_000_000.0) as i64
 }
 
+/// Jellyfin ticks (100 ns) to seconds.
 pub fn ticks_to_secs(t: i64) -> f64 {
     t as f64 / 10_000_000.0
 }
@@ -226,6 +271,7 @@ impl Jellyfin {
         if b.contains("://") { b.to_string() } else { format!("http://{b}") }
     }
 
+    /// Sign in with a username and password.
     pub fn login(base: &str, user: &str, password: &str) -> Result<Self> {
         let base = Self::normalize_server(base);
         let agent = Self::agent();
@@ -240,7 +286,7 @@ impl Jellyfin {
                 ureq::Error::Transport(t) => anyhow!("Can't reach server: {t}"),
             })?
             .into_json()
-            .map_err(|_| anyhow!("{base} did not answer like a Jellyfin server"))?;
+            .map_err(|e| anyhow!("{base} did not answer like a Jellyfin server ({e})"))?;
         Ok(Self {
             base,
             token: resp.access_token,
@@ -298,8 +344,8 @@ impl Jellyfin {
             .post(&format!("{}{}", self.base, path))
             .set("Authorization", &self.auth())
             .send_json(body)
-            .map_err(|e| anyhow!("POST {path}: {e}"))?;
-        Ok(())
+            .map(drop)
+            .map_err(|e| anyhow!("POST {path}: {e}"))
     }
 
     fn auth(&self) -> String {
@@ -315,11 +361,13 @@ impl Jellyfin {
     const FIELDS: &'static str =
         "Overview,Genres,CommunityRating,OfficialRating,ProductionYear,ImageTags,BackdropImageTags";
 
+    /// The user's libraries.
     pub fn views(&self) -> Result<Vec<Item>> {
         let r: ItemsResponse = self.get_json(&format!("/UserViews?userId={}", self.user_id))?;
         Ok(r.items)
     }
 
+    /// Direct children of a library or folder, sorted by name.
     pub fn children(&self, parent_id: &str) -> Result<Vec<Item>> {
         let r: ItemsResponse = self.get_json(&format!(
             "/Items?userId={}&ParentId={}&SortBy=SortName&SortOrder=Ascending&Fields={}&Limit=500",
@@ -330,6 +378,7 @@ impl Jellyfin {
         Ok(r.items)
     }
 
+    /// Most recently added items under `parent_id`.
     pub fn latest(&self, parent_id: &str, limit: usize) -> Result<Vec<Item>> {
         // /Items/Latest returns a bare array.
         self.get_json(&format!(
@@ -340,6 +389,7 @@ impl Jellyfin {
         ))
     }
 
+    /// Partially watched videos ("Continue Watching").
     pub fn resume(&self, limit: usize) -> Result<Vec<Item>> {
         let r: ItemsResponse = self.get_json(&format!(
             "/UserItems/Resume?userId={}&Limit={limit}&MediaTypes=Video&Fields={}",
@@ -349,6 +399,7 @@ impl Jellyfin {
         Ok(r.items)
     }
 
+    /// One item by id.
     pub fn item(&self, id: &str) -> Result<Item> {
         self.get_json(&format!("/Items/{}?userId={}", enc(id), self.user_id))
     }
@@ -367,6 +418,7 @@ impl Jellyfin {
         r.items.into_iter().next().ok_or_else(|| anyhow!("no video found"))
     }
 
+    /// URL of an item image (`kind` = `"Primary"`, `"Backdrop"`, …), if it has one.
     pub fn image_url(&self, item: &Item, kind: &str, max_width: u32) -> Option<String> {
         let tag = if kind == "Backdrop" {
             item.backdrop_image_tags.first()?
@@ -379,6 +431,7 @@ impl Jellyfin {
         ))
     }
 
+    /// Download `url` with this session's credentials.
     pub fn fetch_bytes(&self, url: &str) -> Result<Vec<u8>> {
         let resp = self
             .agent
@@ -387,7 +440,7 @@ impl Jellyfin {
             .call()
             .map_err(|e| anyhow!("GET image: {e}"))?;
         let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut resp.into_reader(), &mut buf)?;
+        let _bytes_read = std::io::Read::read_to_end(&mut resp.into_reader(), &mut buf)?;
         Ok(buf)
     }
 
@@ -440,14 +493,17 @@ impl Jellyfin {
             .collect())
     }
 
+    /// Tell the server playback started at `pos` seconds.
     pub fn report_start(&self, item_id: &str, pos: f64) -> Result<()> {
         self.post_json("/Sessions/Playing", self.report(item_id, pos, false))
     }
 
+    /// Report the current position and pause state.
     pub fn report_progress(&self, item_id: &str, pos: f64, paused: bool) -> Result<()> {
         self.post_json("/Sessions/Playing/Progress", self.report(item_id, pos, paused))
     }
 
+    /// Tell the server playback stopped at `pos` seconds.
     pub fn report_stopped(&self, item_id: &str, pos: f64) -> Result<()> {
         self.post_json("/Sessions/Playing/Stopped", self.report(item_id, pos, false))
     }

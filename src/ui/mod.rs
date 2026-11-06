@@ -32,13 +32,14 @@ pub fn accent() -> Hsla {
 pub fn decode_render_image(bytes: &[u8], max_w: u32) -> anyhow::Result<Arc<RenderImage>> {
     let img = image::load_from_memory(bytes)?;
     let img = if img.width() > max_w {
-        let h = (img.height() as f64 * max_w as f64 / img.width() as f64) as u32;
+        let h = u64::from(img.height()) * u64::from(max_w) / u64::from(img.width());
+        let h = u32::try_from(h).unwrap_or(u32::MAX);
         img.resize_exact(max_w, h.max(1), image::imageops::FilterType::Triangle)
     } else {
         img
     };
     let mut rgba = img.into_rgba8();
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         px.swap(0, 2);
     }
     Ok(Arc::new(RenderImage::new(smallvec![image::Frame::new(rgba)])))
@@ -55,7 +56,7 @@ pub fn fmt_time(secs: f64) -> String {
 }
 
 pub fn fmt_runtime(secs: f64) -> String {
-    let m = (secs / 60.0).round() as u64;
+    let m = (secs.max(0.0) / 60.0).round() as u64;
     if m >= 60 {
         format!("{}h {}m", m / 60, m % 60)
     } else {
@@ -80,6 +81,23 @@ pub fn proof_log(msg: impl AsRef<str>) {
         .append(true)
         .open(crate::proof_dir().join("run.log"))
     {
-        let _ = f.write_all(line.as_bytes());
+        f.write_all(line.as_bytes()).log_err();
+    }
+}
+
+/// Log an error that nobody can act on, instead of silently discarding it
+/// (e.g. a view released before its background task finished).
+pub trait LogErr {
+    /// Log the error, if any, with the caller's location.
+    fn log_err(self);
+}
+
+impl<T, E: std::fmt::Debug> LogErr for Result<T, E> {
+    #[track_caller]
+    fn log_err(self) {
+        if let Err(error) = self {
+            let location = std::panic::Location::caller();
+            log::warn!("{}:{}: {error:?}", location.file(), location.line());
+        }
     }
 }

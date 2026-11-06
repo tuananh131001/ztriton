@@ -11,12 +11,12 @@
 
 use anyhow::{Result, anyhow, bail};
 use libmpv2::{
-    Format, Mpv,
+    Format, Mpv, SetData,
     events::{Event, PropertyData},
 };
 use libmpv2_sys as sys;
 use parking_lot::{Condvar, Mutex};
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{CStr, c_void};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
@@ -29,19 +29,40 @@ const MAX_H: u32 = 1080;
 
 /// One decoded, display-ready frame, tightly packed BGRA (alpha = 255).
 pub struct VideoFrame {
+    /// Width in pixels.
     pub width: u32,
+    /// Height in pixels.
     pub height: u32,
+    /// `width * height * 4` bytes, row-major, no padding.
     pub bgra: Vec<u8>,
+    /// Increases by one for every rendered frame.
     pub seq: u64,
 }
 
+impl std::fmt::Debug for VideoFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VideoFrame")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("seq", &self.seq)
+            .finish_non_exhaustive()
+    }
+}
+
+/// One entry of mpv's track list.
 #[derive(Clone, Debug, Default)]
 pub struct Track {
+    /// mpv track id, unique per track type within the current file.
     pub id: i64,
-    pub kind: String, // "audio" | "sub" | "video"
+    /// `"audio"`, `"sub"` or `"video"`.
+    pub kind: String,
+    /// Language tag as reported by mpv (e.g. `"eng"`), possibly empty.
     pub language: String,
+    /// Track title, possibly empty.
     pub title: String,
+    /// Human-readable name for the UI.
     pub label: String,
+    /// Whether this track is currently playing.
     pub selected: bool,
 }
 
@@ -49,8 +70,11 @@ pub struct Track {
 /// sidecar `.srt`), added to mpv once the video has loaded.
 #[derive(Clone, Debug)]
 pub struct ExternalSubtitle {
+    /// HTTP(S) URL of the subtitle file.
     pub url: String,
+    /// Track title shown in the subtitle picker.
     pub title: String,
+    /// Language tag (e.g. `"vie"`), possibly empty.
     pub language: String,
 }
 
@@ -59,11 +83,19 @@ pub struct ExternalSubtitle {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SubtitlePreference {
+    /// Subtitles turned off.
     Off,
-    Track { language: String, title: String },
+    /// A specific track.
+    Track {
+        /// The track's language tag.
+        language: String,
+        /// The track's title.
+        title: String,
+    },
 }
 
 impl SubtitlePreference {
+    /// The preference that reproduces choosing `track` (`None` = off).
     pub fn from_track(track: Option<&Track>) -> Self {
         match track {
             Some(track) => Self::Track {
@@ -93,27 +125,41 @@ struct PendingSubtitles {
     preference: Option<SubtitlePreference>,
 }
 
+/// Snapshot of playback state, kept current by mpv property observers.
 #[derive(Clone, Debug, Default)]
 pub struct Status {
+    /// Playback position in seconds.
     pub position: f64,
+    /// File duration in seconds (0 until known).
     pub duration: f64,
+    /// Whether playback is paused.
     pub paused: bool,
+    /// Whether the end of the file was reached.
     pub eof: bool,
+    /// Whether playback is waiting for the network cache.
     pub buffering: bool,
+    /// Whether audio is muted.
     pub muted: bool,
+    /// Volume in percent.
     pub volume: f64,
+    /// Video codec description.
     pub video_codec: String,
+    /// Source video width in pixels.
     pub width: i64,
+    /// Source video height in pixels.
     pub height: i64,
+    /// Active hardware decoder, `"no"` or empty for software decoding.
     pub hwdec: String,
 }
 
+/// Options fixed when a [`Player`] is created.
 #[derive(Clone, Debug)]
 pub struct PlayerOptions {
     /// Disable audio output (headless tests).
     pub no_audio: bool,
     /// Start muted (audio still decoded; toggle with `toggle_mute`).
     pub muted: bool,
+    /// Initial volume in percent.
     pub volume: i64,
 }
 
@@ -158,6 +204,7 @@ impl Shared {
     }
 }
 
+/// An mpv instance with its render and event threads.
 pub struct Player {
     mpv: Arc<Mpv>,
     shared: Arc<Shared>,
@@ -165,8 +212,18 @@ pub struct Player {
     event_thread: Option<JoinHandle<()>>,
 }
 
+impl std::fmt::Debug for Player {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Player")
+            .field("status", &self.status())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Raw mpv client API version of the *loaded* libmpv dylib.
+#[expect(unsafe_code, reason = "libmpv2 has no safe wrapper for mpv_client_api_version")]
 pub fn client_api_version() -> (u64, u64) {
+    // SAFETY: takes no arguments and only reads a constant from the loaded library.
     let v = unsafe { sys::mpv_client_api_version() } as u64;
     (v >> 16, v & 0xffff)
 }
@@ -190,6 +247,7 @@ const P_AID: u64 = 15;
 const P_SID: u64 = 16;
 
 impl Player {
+    /// Create mpv and start its render and event threads.
     pub fn new(opts: PlayerOptions) -> Result<Self> {
         let (maj, min) = client_api_version();
         if maj < 2 || (maj == 2 && min < 6) {
@@ -279,7 +337,7 @@ impl Player {
         });
         ready_rx
             .recv()
-            .map_err(|_| anyhow!("render thread died during init"))??;
+            .map_err(|e| anyhow!("render thread died during init: {e}"))??;
 
         this.event_thread = Some({
             let mpv = this.mpv.clone();
@@ -334,10 +392,26 @@ impl Player {
         self.mpv
             .command("loadfile", &[url, "replace", "-1", &per_file])
             .map_err(|e| anyhow!("loadfile: {e:?}"))?;
-        self.mpv.set_property("pause", false).ok();
+        self.set("pause", false);
         Ok(())
     }
 
+    /// Fire-and-forget command: a failure is logged rather than returned,
+    /// because callers (key presses, UI clicks) have nothing to recover.
+    fn run(&self, name: &str, args: &[&str]) {
+        if let Err(e) = self.mpv.command(name, args) {
+            self.shared.log_event(format!("{name} {args:?} failed: {e:?}"));
+        }
+    }
+
+    /// Like [`Self::run`], for setting a property.
+    fn set<T: SetData>(&self, name: &str, value: T) {
+        if let Err(e) = self.mpv.set_property(name, value) {
+            self.shared.log_event(format!("set {name} failed: {e:?}"));
+        }
+    }
+
+    /// The newest rendered frame, if any.
     pub fn latest_frame(&self) -> Option<Arc<VideoFrame>> {
         self.shared.latest.lock().clone()
     }
@@ -352,10 +426,12 @@ impl Player {
         }
     }
 
+    /// Number of frames rendered since creation.
     pub fn frames_rendered(&self) -> u64 {
         self.shared.frames_rendered.load(Ordering::Relaxed)
     }
 
+    /// Timestamped log of notable mpv events.
     pub fn events(&self) -> Vec<String> {
         self.shared.events.lock().clone()
     }
@@ -365,30 +441,34 @@ impl Player {
         self.shared.status.lock().clone()
     }
 
+    /// Read an mpv property as a string (empty if unavailable).
     pub fn property_string(&self, name: &str) -> String {
         self.mpv.get_property::<String>(name).unwrap_or_default()
     }
 
+    /// Toggle between playing and paused.
     pub fn toggle_pause(&self) {
-        self.mpv.command("cycle", &["pause"]).ok();
+        self.run("cycle", &["pause"]);
     }
 
+    /// Pause or resume.
     pub fn set_paused(&self, paused: bool) {
-        self.mpv.set_property("pause", paused).ok();
+        self.set("pause", paused);
     }
 
+    /// Seek by `secs` (negative = backwards).
     pub fn seek_relative(&self, secs: f64) {
-        self.mpv.command("seek", &[&format!("{secs}"), "relative"]).ok();
+        self.run("seek", &[&format!("{secs}"), "relative"]);
     }
 
+    /// Seek to `secs` from the start.
     pub fn seek_absolute(&self, secs: f64) {
-        self.mpv.command("seek", &[&format!("{secs:.3}"), "absolute"]).ok();
+        self.run("seek", &[&format!("{secs:.3}"), "absolute"]);
     }
 
+    /// Seek to `pct` percent of the duration.
     pub fn seek_percent(&self, pct: f64) {
-        self.mpv
-            .command("seek", &[&format!("{pct:.3}"), "absolute-percent"])
-            .ok();
+        self.run("seek", &[&format!("{pct:.3}"), "absolute-percent"]);
     }
 
     /// Cached track list (rebuilt on the event thread when tracks/aid/sid change).
@@ -462,7 +542,7 @@ fn apply_pending_subtitles(mpv: &Mpv, shared: &Shared) {
 impl Player {
     /// Cycle "aid" or "sid".
     pub fn cycle(&self, prop: &str) {
-        self.mpv.command("cycle", &[prop]).ok();
+        self.run("cycle", &[prop]);
     }
 
     /// Select a subtitle track by id, or turn subtitles off with `None`.
@@ -474,8 +554,9 @@ impl Player {
         .map_err(|e| anyhow!("select subtitle: {e:?}"))
     }
 
+    /// Set the volume in percent (clamped to 0–130).
     pub fn set_volume(&self, v: i64) {
-        self.mpv.set_property("volume", v.clamp(0, 130)).ok();
+        self.set("volume", v.clamp(0, 130));
     }
 
     /// Cached (observed) volume.
@@ -483,8 +564,9 @@ impl Player {
         self.shared.status.lock().volume.round() as i64
     }
 
+    /// Toggle mute.
     pub fn toggle_mute(&self) {
-        self.mpv.command("cycle", &["mute"]).ok();
+        self.run("cycle", &["mute"]);
     }
 
     /// Cached (observed) mute state.
@@ -492,25 +574,29 @@ impl Player {
         self.shared.status.lock().muted
     }
 
+    /// Stop playback and unload the file.
     pub fn stop(&self) {
-        self.mpv.command("stop", &[]).ok();
+        self.run("stop", &[]);
     }
 }
 
 impl Drop for Player {
+    #[expect(unsafe_code, reason = "libmpv2 has no safe wrapper for mpv_wakeup")]
     fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::SeqCst);
-        self.mpv.command("stop", &[]).ok();
+        self.run("stop", &[]);
         {
             *self.shared.dirty.lock() = true;
-            self.shared.cv.notify_all();
+            let _woken: usize = self.shared.cv.notify_all();
         }
+        // SAFETY: `self.mpv` keeps the handle alive, and mpv_wakeup is thread-safe.
         unsafe { sys::mpv_wakeup(self.mpv.ctx.as_ptr()) };
-        if let Some(t) = self.render_thread.take() {
-            let _ = t.join();
-        }
-        if let Some(t) = self.event_thread.take() {
-            let _ = t.join();
+        for (name, thread) in [("render", self.render_thread.take()), ("event", self.event_thread.take())] {
+            if let Some(thread) = thread
+                && thread.join().is_err()
+            {
+                log::error!("mpv {name} thread panicked");
+            }
         }
         // The last Arc<Mpv> drops with `self` -> libmpv2 calls mpv_destroy,
         // which shuts the core down since no other handles exist.
@@ -561,7 +647,8 @@ fn event_loop(mpv: Arc<Mpv>, shared: Arc<Shared>) {
                     *shared.tracks.lock() = read_tracks(&mpv);
                 }
                 if matches!(reply_userdata, P_DW | P_DH) {
-                    let packed = ((dw.max(0) as u64) << 32) | (dh.max(0) as u64 & 0xffff_ffff);
+                    let (width, height) = (u64::try_from(dw).unwrap_or(0), u64::try_from(dh).unwrap_or(0));
+                    let packed = (width << 32) | (height & 0xffff_ffff);
                     shared.dsize.store(packed, Ordering::Release);
                 }
             }
@@ -594,17 +681,46 @@ fn event_loop(mpv: Arc<Mpv>, shared: Arc<Shared>) {
 // Software render thread: calls ONLY mpv_render_* functions.
 // ---------------------------------------------------------------------------
 
+#[expect(unsafe_code, reason = "C callback for the mpv render API")]
 unsafe extern "C" fn on_mpv_update(ctx: *mut c_void) {
     // Called from arbitrary mpv threads; must not call mpv APIs here.
+    // SAFETY: `ctx` is the `Arc<Shared>` pointer registered in render_loop, which
+    // holds that Arc until it unregisters this callback.
     let shared = unsafe { &*(ctx as *const Shared) };
     *shared.dirty.lock() = true;
-    shared.cv.notify_one();
+    let _woken: bool = shared.cv.notify_one();
+}
+
+#[expect(unsafe_code, reason = "reads mpv's static error strings")]
+fn mpv_error_message(code: i32) -> String {
+    // SAFETY: accepts any error code and returns a pointer to a static string.
+    let message = unsafe { sys::mpv_error_string(code) };
+    // SAFETY: mpv_error_string never returns null, and the string is NUL-terminated and static.
+    unsafe { CStr::from_ptr(message) }.to_string_lossy().into_owned()
+}
+
+/// Display size scaled down (keeping the aspect ratio) to fit `MAX_W` x `MAX_H`,
+/// rounded down to even dimensions of at least 2.
+fn render_size(display_width: u32, display_height: u32) -> (u32, u32) {
+    let (width, height) = (u64::from(display_width), u64::from(display_height));
+    let (max_width, max_height) = (u64::from(MAX_W), u64::from(MAX_H));
+    let (width, height) = if width <= max_width && height <= max_height {
+        (width, height)
+    } else if width * max_height >= height * max_width {
+        (max_width, height * max_width / width.max(1))
+    } else {
+        (width * max_height / height.max(1), max_height)
+    };
+    let even = |value: u64, max: u32| u32::try_from(value).unwrap_or(max).max(2) & !1;
+    (even(width, MAX_W), even(height, MAX_H))
 }
 
 struct RenderCtx(*mut sys::mpv_render_context);
 
 impl Drop for RenderCtx {
+    #[expect(unsafe_code, reason = "frees the mpv render context")]
     fn drop(&mut self) {
+        // SAFETY: created by mpv_render_context_create, and freed only here.
         unsafe { sys::mpv_render_context_free(self.0) };
     }
 }
@@ -614,6 +730,7 @@ impl Drop for RenderCtx {
 #[derive(Clone, Copy)]
 struct Chunk([u8; 64]);
 
+#[expect(unsafe_code, reason = "calls the mpv software render API")]
 fn sw_render(rctx: &RenderCtx, fmt: &CStr, w: u32, h: u32, stride: usize, ptr: *mut c_void) -> i32 {
     let mut size = [w as i32, h as i32];
     let mut stride_sz: usize = stride;
@@ -639,11 +756,14 @@ fn sw_render(rctx: &RenderCtx, fmt: &CStr, w: u32, h: u32, stride: usize, ptr: *
             data: std::ptr::null_mut(),
         },
     ];
+    // SAFETY: `rctx` is live, and every param points at locals (or the caller's
+    // buffer of `stride * h` bytes) that outlive this synchronous call.
     unsafe { sys::mpv_render_context_render(rctx.0, params.as_mut_ptr()) }
 }
 
+#[expect(unsafe_code, reason = "owns the mpv render context (C API)")]
 fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sender<Result<()>>) {
-    let api_sw = CString::new("sw").unwrap();
+    let api_sw = c"sw";
     let mut params = [
         sys::mpv_render_param {
             type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE,
@@ -655,24 +775,31 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
         },
     ];
     let mut raw: *mut sys::mpv_render_context = std::ptr::null_mut();
+    // SAFETY: `mpv` is a live handle, `raw` is a valid out-pointer, and `params`
+    // is terminated by MPV_RENDER_PARAM_INVALID.
     let rc = unsafe { sys::mpv_render_context_create(&mut raw, mpv.ctx.as_ptr(), params.as_mut_ptr()) };
     // From here on the render thread never touches `mpv` (client API) again.
     drop(mpv);
     if rc < 0 || raw.is_null() {
-        let msg = unsafe { CStr::from_ptr(sys::mpv_error_string(rc)) }
-            .to_string_lossy()
-            .into_owned();
-        let _ = ready.send(Err(anyhow!("mpv_render_context_create(sw) failed: {msg}")));
+        let msg = mpv_error_message(rc);
+        if ready.send(Err(anyhow!("mpv_render_context_create(sw) failed: {msg}"))).is_err() {
+            log::error!("render context creation failed after Player::new gave up: {msg}");
+        }
         return;
     }
     let rctx = RenderCtx(raw);
+    // SAFETY: `shared` (an Arc held until the callback is cleared below) outlives
+    // every call mpv makes to `on_mpv_update`.
     unsafe {
         sys::mpv_render_context_set_update_callback(rctx.0, Some(on_mpv_update), Arc::as_ptr(&shared) as *mut c_void);
     }
     shared.log_event("sw render context created (MPV_RENDER_API_TYPE_SW)".into());
-    let _ = ready.send(Ok(()));
+    if ready.send(Ok(())).is_err() {
+        // Player::new is gone, so nobody will ever stop this thread.
+        return;
+    }
 
-    let fmt = CString::new("bgr0").unwrap();
+    let fmt = c"bgr0";
     let mut scratch: Vec<Chunk> = Vec::new();
     let mut tiny = [Chunk([0; 64]); 4];
 
@@ -680,13 +807,14 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
         {
             let mut dirty = shared.dirty.lock();
             if !*dirty {
-                shared.cv.wait_for(&mut dirty, Duration::from_millis(100));
+                let _timed_out = shared.cv.wait_for(&mut dirty, Duration::from_millis(100));
             }
             *dirty = false;
         }
         if shared.stop.load(Ordering::SeqCst) {
             break;
         }
+        // SAFETY: `rctx` is live, and only this thread uses it.
         let flags = unsafe { sys::mpv_render_context_update(rctx.0) };
         if flags & (sys::mpv_render_update_flag_MPV_RENDER_UPDATE_FRAME as u64) == 0 {
             continue;
@@ -697,13 +825,13 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
         if dw == 0 || dh == 0 {
             // Size not known yet (or audio-only): still consume the frame so the
             // VO never waits on us, into a throwaway 16x4 target.
-            sw_render(&rctx, &fmt, 16, 4, 64, tiny.as_mut_ptr() as *mut c_void);
+            let rc = sw_render(&rctx, fmt, 16, 4, 64, tiny.as_mut_ptr() as *mut c_void);
+            if rc < 0 {
+                shared.log_event(format!("sw render (discard) error {rc}"));
+            }
             continue;
         }
-        // Target size = display size, capped to 1080p, even dimensions.
-        let scale = f64::min(1.0, f64::min(MAX_W as f64 / dw as f64, MAX_H as f64 / dh as f64));
-        let w = (((dw as f64 * scale) as u32).max(2)) & !1;
-        let h = (((dh as f64 * scale) as u32).max(2)) & !1;
+        let (w, h) = render_size(dw, dh);
 
         let row = w as usize * 4;
         let stride = (row + 63) & !63;
@@ -711,25 +839,22 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
         if scratch.len() < need_chunks {
             scratch.resize(need_chunks, Chunk([0; 64]));
         }
-        let rc = sw_render(&rctx, &fmt, w, h, stride, scratch.as_mut_ptr() as *mut c_void);
+        let rc = sw_render(&rctx, fmt, w, h, stride, scratch.as_mut_ptr() as *mut c_void);
         if rc < 0 {
-            let msg = unsafe { CStr::from_ptr(sys::mpv_error_string(rc)) }.to_string_lossy();
+            let msg = mpv_error_message(rc);
             shared.log_event(format!("sw render error: {msg}"));
             continue;
         }
 
         // Pack rows (no-op layout when stride == row) and force opaque alpha.
+        // SAFETY: `scratch` holds at least `need_chunks * 64 >= stride * h` initialised
+        // bytes, and is not mutated while `src` is alive.
         let src = unsafe { std::slice::from_raw_parts(scratch.as_ptr() as *const u8, stride * h as usize) };
-        let mut bgra = if stride == row {
-            src[..row * h as usize].to_vec()
-        } else {
-            let mut v = Vec::with_capacity(row * h as usize);
-            for y in 0..h as usize {
-                v.extend_from_slice(&src[y * stride..y * stride + row]);
-            }
-            v
-        };
-        for px in bgra.chunks_exact_mut(4) {
+        let mut bgra = Vec::with_capacity(row * h as usize);
+        for line in src.chunks_exact(stride) {
+            bgra.extend_from_slice(line.get(..row).unwrap_or_default());
+        }
+        for px in bgra.as_chunks_mut::<4>().0 {
             px[3] = 255;
         }
 
@@ -747,6 +872,7 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
         }
     }
     // Detach callback before freeing, so mpv never calls into a dead Shared.
+    // SAFETY: `rctx` is still live; clearing the callback has no other preconditions.
     unsafe {
         sys::mpv_render_context_set_update_callback(rctx.0, None, std::ptr::null_mut());
     }
@@ -757,7 +883,7 @@ impl VideoFrame {
     /// Save as PNG (BGRA -> RGBA) for proof artifacts.
     pub fn save_png(&self, path: &std::path::Path) -> Result<()> {
         let mut rgba = self.bgra.clone();
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
         let img = image::RgbaImage::from_raw(self.width, self.height, rgba)
@@ -769,7 +895,7 @@ impl VideoFrame {
     /// Luma variance — a solid/black frame has ~0.
     pub fn luma_variance(&self) -> f64 {
         let (mut n, mut sum, mut sq) = (0f64, 0f64, 0f64);
-        for px in self.bgra.chunks_exact(4).step_by(7) {
+        for px in self.bgra.as_chunks::<4>().0.iter().step_by(7) {
             let y = 0.114 * px[0] as f64 + 0.587 * px[1] as f64 + 0.299 * px[2] as f64;
             n += 1.0;
             sum += y;
@@ -826,5 +952,15 @@ mod tests {
         assert_eq!(choose_subtitle(&tracks, &preference("vie", "Vietnamese - ASS - External")), Some(Some(2)));
         assert_eq!(choose_subtitle(&tracks, &preference("fre", "French")), None);
         assert_eq!(choose_subtitle(&tracks, &preference("", "Commentary")), None);
+    }
+    #[test]
+    fn render_size_fits_1080p_and_stays_even() {
+        assert_eq!(render_size(1920, 1080), (1920, 1080));
+        assert_eq!(render_size(1280, 720), (1280, 720));
+        assert_eq!(render_size(3840, 2160), (1920, 1080));
+        assert_eq!(render_size(3840, 1600), (1920, 800));
+        assert_eq!(render_size(1440, 2160), (720, 1080));
+        assert_eq!(render_size(721, 481), (720, 480));
+        assert_eq!(render_size(1, 1), (2, 2));
     }
 }
