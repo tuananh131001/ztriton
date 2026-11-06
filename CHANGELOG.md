@@ -1,16 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.0.1 — 2026-11-07
 
-### Added
-- Subtitle picker: click **CC** to choose a subtitle track or turn subtitles off.
-- The chosen subtitle is remembered and re-applied on the next video (same track title, else same language).
-- External subtitle files from Jellyfin (e.g. `.srt` stored next to the video) are now loaded.
+First release.
 
-### Fixed
-- No subtitles for videos whose subtitles are separate files (e.g. Modern Family S01E09).
-- The `s` key's on-screen message showed the previous subtitle track instead of the new one.
-
-## 0.1.0
-
-- First version: Jellyfin sign-in saved in the Keychain, home and detail screens, libmpv playback with on-screen controls and progress reporting to Jellyfin.
+- Jellyfin sign-in, kept in the macOS Keychain; home, detail and player screens.
+- libmpv playback with on-screen controls and progress reporting to Jellyfin.
+- Subtitle picker: click **CC** to choose a track or turn subtitles off.
+- Subtitle files stored next to the video on the server (e.g. `.srt`) are loaded.
+- The chosen subtitle is remembered and re-applied on the next video.
