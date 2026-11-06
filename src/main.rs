@@ -11,7 +11,6 @@ use gpui::{
     WindowBounds, WindowOptions, point, px, size,
 };
 use std::path::PathBuf;
-use ui::LogErr;
 use ui::app::{Back, Quit, SignOut, ToggleFullscreen, ZtritonApp};
 
 /// `ZTRITON_PROOF=1`: scripted run that records verification artifacts.
@@ -61,11 +60,6 @@ fn main() {
             }
         })
         .detach();
-        cx.on_action(|_: &ToggleFullscreen, cx| {
-            if let Some(w) = cx.active_window() {
-                w.update(cx, |_, window, _| window.toggle_fullscreen()).log_err();
-            }
-        });
         cx.bind_keys([
             KeyBinding::new("cmd-q", Quit, None),
             KeyBinding::new("cmd-ctrl-f", ToggleFullscreen, None),

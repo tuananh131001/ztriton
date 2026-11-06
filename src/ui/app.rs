@@ -49,6 +49,8 @@ pub struct ZtritonApp {
     focus: FocusHandle,
     autoplay: Option<String>,
     title: String,
+    /// Mirrors `window.is_fullscreen()` for the header button label.
+    fullscreen: bool,
 }
 
 const POSTER_W: f32 = 150.;
@@ -72,6 +74,7 @@ impl ZtritonApp {
             focus,
             autoplay,
             title: String::new(),
+            fullscreen: window.is_fullscreen(),
         };
         // Restore a remembered session from the Keychain, else show the login form.
         cx.spawn_in(window, async move |this, cx| {
@@ -456,8 +459,9 @@ impl ZtritonApp {
                 )
             })
             .child(div().text_3xl().font_weight(FontWeight::BOLD).text_color(text()).child(title))
+            .child(div().flex_1())
             .when(!can_back && self.jf.is_some(), |d| {
-                d.child(div().flex_1()).child(
+                d.child(
                     div()
                         .id("sign-out")
                         .px_3()
@@ -472,6 +476,7 @@ impl ZtritonApp {
                         .on_click(cx.listener(|this, _, window, cx| this.sign_out(&SignOut, window, cx))),
                 )
             })
+            .child(fullscreen_button("fullscreen", self.fullscreen))
     }
 
     fn render_home(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -713,6 +718,7 @@ impl Render for ZtritonApp {
             Screen::Detail(i) => format!("ztriton — {}", i.name),
             Screen::Player(_) => "ztriton — Playing".to_string(),
         };
+        self.fullscreen = window.is_fullscreen();
         if title != self.title {
             window.set_window_title(&title);
             self.title = title;
@@ -724,16 +730,26 @@ impl Render for ZtritonApp {
             (None, Screen::Detail(item)) => self.render_detail(item, cx),
             (None, Screen::Player(view)) => view.clone().into_any_element(),
         };
+        // Login and the connecting/signing-out placeholder render no header, so
+        // they get the fullscreen control as an overlay instead.
+        let needs_overlay = self.login.is_some() || (self.jf.is_none() && self.error.is_none());
         div()
             .key_context("Ztriton")
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::back))
             .on_action(cx.listener(Self::sign_out))
+            // Handled on the root view rather than via a global `cx.on_action`: during key
+            // dispatch the window is already leased, so updating it from a global handler fails.
+            .on_action(|_: &ToggleFullscreen, window, _| window.toggle_fullscreen())
             .size_full()
             .bg(bg())
             .text_color(text())
             .font_family(".SystemUIFont")
+            .relative()
             .child(content)
+            .when(needs_overlay, |d| {
+                d.child(div().absolute().top_8().right_8().child(fullscreen_button("fullscreen-overlay", self.fullscreen)))
+            })
     }
 }
 

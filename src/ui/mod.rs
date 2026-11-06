@@ -101,3 +101,25 @@ impl<T, E: std::fmt::Debug> LogErr for Result<T, E> {
         }
     }
 }
+
+/// Top-right control that toggles native fullscreen (also bound to ctrl-cmd-f).
+pub fn fullscreen_button(id: &'static str, is_fullscreen: bool) -> gpui::Stateful<gpui::Div> {
+    use gpui::{InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, div};
+    div()
+        .id(id)
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .px_3()
+        .py_1()
+        .rounded_md()
+        .bg(surface_hi())
+        .text_sm()
+        .text_color(text())
+        .cursor_pointer()
+        .hover(|s| s.bg(accent()).text_color(bg()))
+        .child(if is_fullscreen { "Exit Full Screen" } else { "Full Screen" })
+        .child(div().text_xs().opacity(0.7).child("⌃⌘F"))
+        .on_click(|_, window, _| window.toggle_fullscreen())
+}

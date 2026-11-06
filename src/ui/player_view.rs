@@ -632,7 +632,9 @@ impl PlayerView {
                             .flex_col()
                             .child(div().text_xl().font_weight(FontWeight::BOLD).child(self.item.name.clone()))
                             .child(div().text_sm().text_color(text_dim()).child(self.item.subtitle())),
-                    ),
+                    )
+                    .child(div().flex_1())
+                    .child(fullscreen_button("player-fullscreen", window.is_fullscreen())),
             )
             // Bottom bar
             .child(
