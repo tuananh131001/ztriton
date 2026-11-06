@@ -1,7 +1,7 @@
 //! Login -> save to Keychain -> restore from Keychain -> sign out, against a
 //! live Jellyfin server. Uses a separate Keychain service and device id so it
 //! never touches the app's own saved login or session.
-//! Run: JELLYFIN_URL=.. JELLYFIN_USER=.. JELLYFIN_PASSWORD=.. cargo test --test auth_keychain_e2e -- --nocapture
+//! Run (credentials from the environment or .env): cargo test --test auth_keychain_e2e -- --nocapture
 #![expect(
     unused_crate_dependencies,
     reason = "integration tests see every dependency of the package"
@@ -11,6 +11,9 @@ use anyhow::Context;
 use std::process::Command;
 use ztriton::jellyfin::Jellyfin;
 use ztriton::keychain::{self, SavedLogin};
+
+#[path = "support/credentials.rs"]
+mod credentials;
 
 const SERVICE: &str = "dev.ztriton.player.e2etest";
 
@@ -27,11 +30,10 @@ fn security_cli_has_item() -> std::io::Result<bool> {
 #[test]
 #[expect(unsafe_code, reason = "set_var isolates the test's Keychain item and device id")]
 fn login_save_restore_signout() -> anyhow::Result<()> {
-    let (Ok(url), Ok(user)) = (std::env::var("JELLYFIN_URL"), std::env::var("JELLYFIN_USER")) else {
-        eprintln!("SKIP: JELLYFIN_URL / JELLYFIN_USER not set (needs a live Jellyfin server)");
+    let Some(credentials::Credentials { url, user, password: pw }) = credentials::load()? else {
+        eprintln!("SKIP: no Jellyfin server configured (set JELLYFIN_URL or fill in .env)");
         return Ok(());
     };
-    let pw = std::env::var("JELLYFIN_PASSWORD").unwrap_or_default();
     // SAFETY: set before this test starts any threads that read the environment.
     unsafe { std::env::set_var("ZTRITON_KEYCHAIN_SERVICE", SERVICE) };
     // SAFETY: as above.

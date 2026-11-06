@@ -1,16 +1,19 @@
 //! External (sidecar) subtitles from a live Jellyfin server reach mpv, can be
 //! chosen, and a remembered choice is re-applied to the next episode.
-//! Uses the app's saved Keychain session (read-only) or JELLYFIN_URL/USER/PASSWORD.
+//! Uses JELLYFIN_URL/USER/PASSWORD (environment or .env), else the app's saved Keychain session (read-only).
 //! Run: cargo test --release --test subtitles_e2e -- --nocapture
 #![expect(
     unused_crate_dependencies,
     reason = "integration tests see every dependency of the package"
 )]
 
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Result, anyhow, ensure};
 use std::time::{Duration, Instant};
 use ztriton::jellyfin::Jellyfin;
 use ztriton::player::{Player, PlayerOptions, SubtitlePreference, Track};
+
+#[path = "support/credentials.rs"]
+mod credentials;
 
 fn wait_until(timeout: Duration, mut f: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
@@ -24,10 +27,8 @@ fn wait_until(timeout: Duration, mut f: impl FnMut() -> bool) -> bool {
 }
 
 fn connect() -> Result<Option<Jellyfin>> {
-    if let Ok(url) = std::env::var("JELLYFIN_URL") {
-        let user = std::env::var("JELLYFIN_USER").context("JELLYFIN_USER")?;
-        let password = std::env::var("JELLYFIN_PASSWORD").unwrap_or_default();
-        return Ok(Some(Jellyfin::login(&url, &user, &password)?));
+    if let Some(credentials) = credentials::load()? {
+        return Ok(Some(Jellyfin::login(&credentials.url, &credentials.user, &credentials.password)?));
     }
     let Some(login) = ztriton::keychain::load()? else { return Ok(None) };
     let Some(session) = login.session else { return Ok(None) };

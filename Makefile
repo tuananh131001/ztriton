@@ -4,11 +4,12 @@
 #   make app        build dist/ztriton.app
 #   make install    install to ~/Applications + `ztriton` CLI link
 #   make uninstall  remove app and CLI link (keeps Keychain login/device id)
-#   make test       unit tests + headless e2e tests; live-server tests need
-#                   JELLYFIN_URL / JELLYFIN_USER / JELLYFIN_PASSWORD in the shell env
+#   make test       unit tests + headless e2e tests; live-server tests read
+#                   JELLYFIN_URL / JELLYFIN_USER / JELLYFIN_PASSWORD from the
+#                   environment or the git-ignored .env (cp .env.example .env)
 #
-# Credentials are entered in the app's login screen and kept in the macOS
-# Keychain (service dev.ztriton.player) — no .env file is read.
+# The app itself never reads .env: its login is entered on the sign-in
+# screen and kept in the macOS Keychain (service dev.ztriton.player).
 #
 # Overrides: make install APP_DIR=/Applications BIN_DIR=/usr/local/bin
 

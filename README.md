@@ -14,8 +14,13 @@ A native macOS Jellyfin client built with GPUI, with playback through libmpv.
 
 ```sh
 make install   # builds dist/ztriton.app, installs to ~/Applications
-make test      # live-server tests use the saved login or JELLYFIN_URL/USER/PASSWORD
+make test      # unit + live-server tests
 ```
+
+Live-server tests read `JELLYFIN_URL`, `JELLYFIN_USER` and `JELLYFIN_PASSWORD`
+from the environment or from `.env` (git-ignored). Set it up once with
+`cp .env.example .env`. Without it they skip, except the subtitle test,
+which falls back to the app's saved login.
 
 Sign in from the app. The session is stored in the macOS Keychain, and
 preferences are stored in `~/Library/Application Support/ztriton/`.

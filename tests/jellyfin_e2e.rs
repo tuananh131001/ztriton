@@ -10,6 +10,9 @@ use std::time::{Duration, Instant};
 use ztriton::jellyfin::{Jellyfin, redact};
 use ztriton::player::{Player, PlayerOptions, client_api_version};
 
+#[path = "support/credentials.rs"]
+mod credentials;
+
 fn wait_until(timeout: Duration, mut f: impl FnMut() -> bool) -> bool {
     let t = Instant::now();
     while t.elapsed() < timeout {
@@ -27,10 +30,10 @@ fn jellyfin_stream_plays_through_libmpv() -> anyhow::Result<()> {
     if let Err(e) = env_logger::builder().is_test(true).try_init() {
         eprintln!("logger already initialised: {e}");
     }
-    if std::env::var("JELLYFIN_URL").is_err() {
-        eprintln!("SKIP: JELLYFIN_URL not set (needs a live Jellyfin server)");
+    let Some(credentials) = credentials::load()? else {
+        eprintln!("SKIP: no Jellyfin server configured (set JELLYFIN_URL or fill in .env)");
         return Ok(());
-    }
+    };
     // Separate device id so the test never invalidates the app's session.
     // SAFETY: set before this test starts any threads that read the environment.
     unsafe { std::env::set_var("ZTRITON_DEVICE_ID", "ztriton-e2e-test") };
@@ -45,12 +48,7 @@ fn jellyfin_stream_plays_through_libmpv() -> anyhow::Result<()> {
     assert!(maj == 2 && min >= 6, "expected mpv 0.42 (client API 2.6+)");
 
     // 2. Jellyfin auth + library
-    let jf = Jellyfin::login(
-        &std::env::var("JELLYFIN_URL")?,
-        &std::env::var("JELLYFIN_USER").expect("JELLYFIN_USER"),
-        &std::env::var("JELLYFIN_PASSWORD").unwrap_or_default(),
-    )
-    .expect("login");
+    let jf = Jellyfin::login(&credentials.url, &credentials.user, &credentials.password)?;
     say!("jellyfin: logged in, user_id={}", jf.user_id);
     let views = jf.views()?;
     say!("jellyfin: views = {:?}", views.iter().map(|v| &v.name).collect::<Vec<_>>());

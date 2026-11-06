@@ -5,6 +5,7 @@
 # Local secrets and environment
 .env
 .env.*
+!.env.example
 
 # Generated verification screenshots, recordings and logs
 /proof
