@@ -1,0 +1,21 @@
+# Build output
+/target
+/dist
+
+# Local secrets and environment
+.env
+.env.*
+
+# Generated verification screenshots, recordings and logs
+/proof
+
+# macOS
+.DS_Store
+._*
+
+# Editors
+.vscode/
+.idea/
+.zed/
+*.swp
+*~
