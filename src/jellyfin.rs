@@ -138,6 +138,10 @@ pub struct UserData {
     #[serde(default)]
     /// Whether the item is marked as watched.
     pub played: bool,
+    #[serde(default)]
+    /// When any device last reported playing the item (start, progress or
+    /// stop), as a UTC timestamp.
+    pub last_played_date: Option<String>,
 }
 
 impl Item {

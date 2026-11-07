@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use ztriton::jellyfin::{Item, Jellyfin};
 use ztriton::keychain::{self, SavedLogin};
+use ztriton::resume::ResumeStore;
 
 actions!(ztriton, [Back, Quit, ToggleFullscreen, SignOut]);
 
@@ -19,7 +20,11 @@ actions!(ztriton, [Back, Quit, ToggleFullscreen, SignOut]);
 enum Screen {
     Home,
     Library { parent: Item, items: Option<Arc<Vec<Item>>> },
-    Detail(Item),
+    Detail {
+        item: Item,
+        /// Where Play resumes, in seconds: the newer of this Mac's and the server's position.
+        resume_secs: f64,
+    },
     Player(Entity<PlayerView>),
 }
 
@@ -235,7 +240,7 @@ impl ZtritonApp {
             };
             proof_log(format!("autoplay: opening detail for '{}' ({})", item.name, item.id));
             this.update(cx, |this, cx| {
-                this.stack.push(Screen::Detail(item.clone()));
+                this.push_detail(item.clone());
                 cx.notify();
             })
             .log_err();
@@ -244,7 +249,11 @@ impl ZtritonApp {
                 if let Some(window) = cx.windows().first().copied() {
                     window
                         .update(cx, |_, window, cx| {
-                            this.update(cx, |this, cx| this.play(item, window, cx)).log_err();
+                            this.update(cx, |this, cx| {
+                                let start = this.start_position(&item);
+                                this.play(item, start, window, cx)
+                            })
+                            .log_err();
                         })
                         .log_err();
                 }
@@ -300,7 +309,7 @@ impl ZtritonApp {
 
     fn open(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
         if item.is_playable() {
-            self.stack.push(Screen::Detail(item));
+            self.push_detail(item);
         } else if item.is_folder
             && let Some(jf) = self.jf.clone()
         {
@@ -331,16 +340,63 @@ impl ZtritonApp {
         cx.notify();
     }
 
-    fn play(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
+    fn start_position(&self, item: &Item) -> f64 {
+        let Some(jf) = &self.jf else { return item.resume_secs() };
+        match ResumeStore::load() {
+            Ok(store) => store.start_position(&jf.user_id, item),
+            Err(e) => {
+                log::warn!("could not read resume positions: {e:#}");
+                item.resume_secs()
+            }
+        }
+    }
+
+    fn push_detail(&mut self, item: Item) {
+        let resume_secs = self.start_position(&item);
+        self.stack.push(Screen::Detail { item, resume_secs });
+    }
+
+    /// Re-read the item from the server after playback so the Detail screen
+    /// shows where Play now resumes (and whether it was watched).
+    fn refresh_detail(&mut self, item_id: String, cx: &mut Context<Self>) {
+        let Some(jf) = self.jf.clone() else { return };
+        cx.spawn(async move |this, cx| {
+            let item = cx.background_executor().spawn(async move { jf.item(&item_id) }).await;
+            this.update(cx, |this, cx| {
+                let item = match item {
+                    Ok(item) => item,
+                    Err(e) => {
+                        log::warn!("could not refresh the played item: {e:#}");
+                        return;
+                    }
+                };
+                let resume = this.start_position(&item);
+                if let Some(Screen::Detail { item: shown, resume_secs }) = this.stack.last_mut()
+                    && shown.id == item.id
+                {
+                    *shown = item;
+                    *resume_secs = resume;
+                    cx.notify();
+                }
+            })
+            .log_err();
+        })
+        .detach();
+    }
+
+    fn play(&mut self, item: Item, start: f64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(jf) = self.jf.clone() else { return };
         // Posters and backdrops are hidden for the whole playback; holding them
         // would keep tens of MB of RAM and GPU memory busy.
         self.release_images(window);
-        let view = cx.new(|cx| PlayerView::new(jf, item, window, cx));
-        cx.subscribe_in(&view, window, |this, _, _: &super::player_view::Closed, window, cx| {
+        log::info!("playing '{}' ({}) from {start:.2}s", item.name, item.id);
+        let item_id = item.id.clone();
+        let view = cx.new(|cx| PlayerView::new(jf, item, start, window, cx));
+        cx.subscribe_in(&view, window, move |this, _, _: &super::player_view::Closed, window, cx| {
             if matches!(this.stack.last(), Some(Screen::Player(_))) {
                 this.pop(cx);
             }
+            this.refresh_detail(item_id.clone(), cx);
             window.focus(&this.focus);
         })
         .detach();
@@ -588,7 +644,7 @@ impl ZtritonApp {
             .into_any_element()
     }
 
-    fn render_detail(&mut self, item: &Item, cx: &mut Context<Self>) -> AnyElement {
+    fn render_detail(&mut self, item: &Item, resume: f64, cx: &mut Context<Self>) -> AnyElement {
         let backdrop_url = self.jf.as_ref().and_then(|jf| {
             jf.image_url(item, "Backdrop", 1920)
                 .or_else(|| jf.image_url(item, "Thumb", 1920))
@@ -614,7 +670,6 @@ impl ZtritonApp {
         if !item.genres.is_empty() {
             meta.push(item.genres.iter().take(3).cloned().collect::<Vec<_>>().join(", "));
         }
-        let resume = item.resume_secs();
         let it_play = item.clone();
         let it_start = item.clone();
 
@@ -693,17 +748,11 @@ impl ZtritonApp {
                                                     if resume > 5.0 { format!("▶  Resume from {}", fmt_time(resume)) } else { "▶  Play".into() },
                                                     true,
                                                 )
-                                                .on_click(cx.listener(move |this, _, window, cx| this.play(it_play.clone(), window, cx))),
+                                                .on_click(cx.listener(move |this, _, window, cx| this.play(it_play.clone(), resume, window, cx))),
                                             )
                                             .when(resume > 5.0, |d| {
                                                 d.child(button("restart", "Play from Beginning".into(), false).on_click(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        let mut i = it_start.clone();
-                                                        if let Some(u) = i.user_data.as_mut() {
-                                                            u.playback_position_ticks = 0;
-                                                        }
-                                                        this.play(i, window, cx)
-                                                    },
+                                                    move |this, _, window, cx| this.play(it_start.clone(), 0.0, window, cx),
                                                 )))
                                             }),
                                     )
@@ -733,7 +782,7 @@ impl Render for ZtritonApp {
             _ if self.login.is_some() => "ztriton — Sign In".to_string(),
             Screen::Home => "ztriton".to_string(),
             Screen::Library { parent, .. } => format!("ztriton — {}", parent.name),
-            Screen::Detail(i) => format!("ztriton — {}", i.name),
+            Screen::Detail { item, .. } => format!("ztriton — {}", item.name),
             Screen::Player(_) => "ztriton — Playing".to_string(),
         };
         self.fullscreen = window.is_fullscreen();
@@ -745,7 +794,7 @@ impl Render for ZtritonApp {
             (Some(login), _) => login.clone().into_any_element(),
             (None, Screen::Home) => self.render_home(cx),
             (None, Screen::Library { parent, items }) => self.render_library(parent, items, cx),
-            (None, Screen::Detail(item)) => self.render_detail(item, cx),
+            (None, Screen::Detail { item, resume_secs }) => self.render_detail(item, *resume_secs, cx),
             (None, Screen::Player(view)) => view.clone().into_any_element(),
         };
         // Login and the connecting/signing-out placeholder render no header, so
