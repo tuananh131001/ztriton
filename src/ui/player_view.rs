@@ -42,6 +42,8 @@ pub struct PlayerView {
     player: Option<Player>,
     jf: Jellyfin,
     item: Item,
+    /// Where playback was asked to start, in seconds.
+    start: f64,
     focus: FocusHandle,
     frame: Option<Arc<VideoFrame>>,
     status: Status,
@@ -63,13 +65,14 @@ impl EventEmitter<Closed> for PlayerView {}
 const BAR_MARGIN: f32 = 40.;
 
 impl PlayerView {
-    pub fn new(jf: Jellyfin, item: Item, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(jf: Jellyfin, item: Item, start: f64, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let mut this = Self {
             player: None,
             jf: jf.clone(),
             item: item.clone(),
+            start,
             focus,
             frame: None,
             status: Status::default(),
@@ -98,7 +101,6 @@ impl PlayerView {
                     drop(tx.unbounded_send(()));
                 });
                 let url = jf.stream_url(&item.id);
-                let start = item.resume_secs();
                 proof_log(format!(
                     "player: libmpv {} | loading '{}' from {} (start {:.1}s)",
                     player.property_string("mpv-version"),
@@ -155,10 +157,18 @@ impl PlayerView {
                     loop {
                         cx.background_executor().timer(Duration::from_secs(1)).await;
                         tick += 1;
-                        let Ok(st) = this.update(cx, |v, cx| {
+                        let Ok(Some(st)) = this.update(cx, |v, cx| {
+                            let player = v.player.as_ref()?;
+                            let position = playing_position(player, &player.status());
                             let st = v.refresh_status();
+                            // Saved on the UI thread so saves land in order, and the last one before quit.
+                            if tick.is_multiple_of(10)
+                                && let Some(position) = position
+                            {
+                                v.save_position(position, st.duration);
+                            }
                             cx.notify();
-                            st
+                            Some(st)
                         }) else {
                             break;
                         };
@@ -519,17 +529,29 @@ impl PlayerView {
     /// Jellyfin off the UI thread. Returns the background task (if any).
     fn shutdown(&mut self, cx: &mut Context<Self>) -> Option<gpui::Task<()>> {
         let p = self.player.take()?;
-        let pos = p.status().position;
+        let status = p.status();
+        // Closed before the first frame: the start report already made the
+        // server's copy newer (and 0 if under its minimum), so re-save `start`.
+        let pos = playing_position(&p, &status).unwrap_or(self.start);
         p.stop(); // cheap async command: audio/video stop right now
+        self.save_position(pos, status.duration);
         proof_log(format!("player: closing at {pos:.2}s, reporting stop to Jellyfin"));
         let jf = self.jf.clone();
         let id = self.item.id.clone();
         Some(cx.background_executor().spawn(async move {
-            drop(p); // joins mpv threads, destroys the core
+            // Report before tearing mpv down: on quit GPUI waits only ~100 ms for this task.
             if let Err(e) = jf.report_stopped(&id, pos) {
                 log::warn!("report_stopped: {e}");
             }
+            drop(p); // joins mpv threads, destroys the core
         }))
+    }
+
+    fn save_position(&self, position: f64, duration: f64) {
+        match ztriton::resume::remember(&self.jf.user_id, &self.item.id, position, duration) {
+            Ok(()) => proof_log(format!("resume: saved '{}' at {position:.2}s of {duration:.1}s", self.item.name)),
+            Err(e) => log::warn!("could not save the resume position: {e:#}"),
+        }
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
@@ -762,6 +784,13 @@ impl PlayerView {
             )
             .into_any_element()
     }
+}
+
+/// Where playback is, or `None` until mpv renders a frame: before that the
+/// file may know its duration yet still report 0 instead of the `start` it is
+/// seeking to, and saving that would erase the resume position.
+fn playing_position(player: &Player, status: &Status) -> Option<f64> {
+    (status.duration > 0.0 && player.frames_rendered() > 0).then_some(status.position)
 }
 
 fn track_label(p: &Player, kind: &str, name: &str) -> String {
