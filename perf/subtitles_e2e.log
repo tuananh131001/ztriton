@@ -1,0 +1,27 @@
+== Modern Family S01E09, no remembered choice ==
+item: Modern Family · S1E9 · Fizbo (5eac1346d2d0c4f8f35a667b836f5899)
+  jellyfin external subtitle: [eng] English - Hearing Impaired - SUBRIP - External
+  jellyfin external subtitle: [vie] Vietnamese - SUBRIP - External
+  mpv sub track id=1 lang=eng selected=false label="English - Hearing Impaired - SUBRIP - External"
+  mpv sub track id=2 lang=vie selected=false label="Vietnamese - SUBRIP - External"
+selected Vietnamese -> mpv sub-text at 2.88s: "[Tiếng còi hú xa xa]"
+selected Off -> mpv sub-text: ""
+selected English -> mpv sub-text at 2.88s: "[Siren Wailing In Distance]"
+remembered preference: Track { language: "vie", title: "Vietnamese - SUBRIP - External" }
+== Modern Family S01E10, remembered choice applied ==
+item: Modern Family · S1E10 · Undeck the Halls (b388363c9184bd787eabc90ab51e1daa)
+  jellyfin external subtitle: [eng] English - SUBRIP - External
+  jellyfin external subtitle: [vie] Vietnamese - SUBRIP - External
+  mpv sub track id=1 lang=eng selected=false label="English - SUBRIP - External"
+  mpv sub track id=2 lang=vie selected=true label="Vietnamese - SUBRIP - External"
+auto-selected Some("Vietnamese - SUBRIP - External") -> mpv sub-text at 6.34s: "Chỉ mặc đến khi bà thấy thôi."
+--- mpv events ---
+[   0.001s] libmpv loaded: client API 2.6, mpv v0.42.0
+[   0.011s] OpenGL render context created (frames -> NV12 IOSurface -> Metal)
+[   0.011s] start-file
+[   0.148s] file-loaded: 1920x1080 codec=H.265 / HEVC (High Efficiency Video Coding) duration=1299.4s
+[   0.176s] sub-add: English - SUBRIP - External
+[   0.189s] sub-add: Vietnamese - SUBRIP - External
+[   0.192s] video-reconfig: display 0x0 hwdec=videotoolbox
+[   0.192s] video-reconfig: display 0x0 hwdec=videotoolbox
+[   0.192s] playback-restart at 0.04s

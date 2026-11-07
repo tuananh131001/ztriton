@@ -1,0 +1,20 @@
+libmpv client API: 2.6
+jellyfin: logged in, user_id=a4f5d338f8c2471c851d0956de9fd0d1
+jellyfin: views = ["Movies", "Music", "Shows"]
+jellyfin: picked Movie '2012' (3455aa84003ec4dcb608f1a52320f7da), runtime Some(9469.568)s
+stream url: http://100.84.13.71:8096/Videos/3455aa84003ec4dcb608f1a52320f7da/stream?static=true
+mpv-version property: mpv v0.42.0
+loaded: duration=9469.6s codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x816 hwdec=
+playback: time-pos 0.21s -> 6.21s over 6.01s wall; frames 2 -> 146 (24.0 fps)
+frame #146: 1920x816 luma variance 2653.9
+seek: target 4734.8s -> time-pos 4736.8s
+frame #196 after seek: luma variance 348.0
+--- mpv events ---
+[   0.000s] libmpv loaded: client API 2.6, mpv v0.42.0
+[   0.050s] OpenGL render context created (frames -> NV12 IOSurface -> Metal)
+[   0.050s] start-file
+[   0.357s] file-loaded: 1920x816 codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 duration=9469.6s
+[   0.468s] video-reconfig: display 0x0 hwdec=videotoolbox
+[   0.468s] video-reconfig: display 0x0 hwdec=videotoolbox
+[   0.469s] playback-restart at 0.08s
+[   6.790s] playback-restart at 4734.81s

@@ -1,0 +1,11 @@
+label=baseline-run1 mode=play cpu_pct=46.6 footprint_mb=455.5 footprint_peak_mb=463.1 rss_mb=262.6 energy_impact=43.7 presented_fps_per_video_sec=24.01 dropped_frames=0 window_s=30
+label=optA-run1 mode=play cpu_pct=18.0 footprint_mb=380.3 footprint_peak_mb=384.9 rss_mb=180.5 energy_impact=16.8 presented_fps_per_video_sec=23.98 dropped_frames=0 window_s=30
+label=baseline-run2 mode=play cpu_pct=45.6 footprint_mb=449.4 footprint_peak_mb=457.1 rss_mb=259.9 energy_impact=42.9 presented_fps_per_video_sec=23.98 dropped_frames=0 window_s=30
+label=optA-run2 mode=play cpu_pct=18.5 footprint_mb=390.4 footprint_peak_mb=392.5 rss_mb=183.5 energy_impact=17.4 presented_fps_per_video_sec=23.94 dropped_frames=0 window_s=30
+label=optA2-run3 mode=play cpu_pct=18.0 footprint_mb=313.5 footprint_peak_mb=315.8 rss_mb=190.0 energy_impact=16.9 presented_fps_per_video_sec=24.01 dropped_frames=0 window_s=30
+label=baseline-run3 mode=play cpu_pct=46.0 footprint_mb=445.2 footprint_peak_mb=452.8 rss_mb=254.5 energy_impact=43.1 presented_fps_per_video_sec=24.01 dropped_frames=0 window_s=30
+label=optA2-run3 mode=play cpu_pct=17.8 footprint_mb=308.9 footprint_peak_mb=313.5 rss_mb=170.1 energy_impact=16.7 presented_fps_per_video_sec=23.94 dropped_frames=1 window_s=30
+label=optA3-cache32 mode=play cpu_pct=20.0 footprint_mb=278.2 footprint_peak_mb=280.4 rss_mb=168.0 energy_impact=18.7 presented_fps_per_video_sec=24.01 dropped_frames=0 window_s=30
+label=optA3-cache32 mode=play cpu_pct=20.3 footprint_mb=281.3 footprint_peak_mb=285.4 rss_mb=174.5 energy_impact=18.9 presented_fps_per_video_sec=23.97 dropped_frames=0 window_s=30
+label=baseline mode=idle cpu_pct=0.6 footprint_mb=142.9 footprint_peak_mb=158.9 rss_mb=154.1 energy_impact=0.6 presented_fps_per_video_sec=n/a dropped_frames=n/a window_s=20
+label=optA3 mode=idle cpu_pct=0.6 footprint_mb=143.8 footprint_peak_mb=159.8 rss_mb=152.6 energy_impact=0.5 presented_fps_per_video_sec=n/a dropped_frames=n/a window_s=20
