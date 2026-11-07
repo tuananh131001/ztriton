@@ -1,16 +1,16 @@
-//! Full-window video player: mpv SW frames -> GPUI RenderImage, with an
-//! auto-hiding Infuse-style control overlay.
+//! Full-window video player: mpv frames as NV12 IOSurfaces drawn by GPUI's
+//! Metal `surface()` element, with an auto-hiding Infuse-style control overlay.
 
 use super::*;
 use futures::StreamExt;
 use gpui::{
     AnyElement, App, Context, EventEmitter, FocusHandle, Focusable, FontWeight, IntoElement,
-    KeyBinding, MouseButton, MouseDownEvent, ObjectFit, Render, RenderImage, SharedString, Window,
-    actions, div, img, linear_color_stop, linear_gradient, prelude::*, px, rgba,
+    KeyBinding, MouseButton, MouseDownEvent, ObjectFit, Render, SharedString, Window, actions, div,
+    linear_color_stop, linear_gradient, prelude::*, px, rgba,
 };
 use std::time::{Duration, Instant};
 use ztriton::jellyfin::{Item, Jellyfin, redact};
-use ztriton::player::{ExternalSubtitle, Player, PlayerOptions, Status, SubtitlePreference};
+use ztriton::player::{ExternalSubtitle, Player, PlayerOptions, Status, SubtitlePreference, VideoFrame};
 use ztriton::preferences::Preferences;
 
 actions!(
@@ -43,8 +43,7 @@ pub struct PlayerView {
     jf: Jellyfin,
     item: Item,
     focus: FocusHandle,
-    image: Option<Arc<RenderImage>>,
-    seq: u64,
+    frame: Option<Arc<VideoFrame>>,
     status: Status,
     tracks: Vec<ztriton::player::Track>,
     last_activity: Instant,
@@ -72,8 +71,7 @@ impl PlayerView {
             jf: jf.clone(),
             item: item.clone(),
             focus,
-            image: None,
-            seq: 0,
+            frame: None,
             status: Status::default(),
             tracks: vec![],
             last_activity: Instant::now(),
@@ -309,6 +307,22 @@ impl PlayerView {
             self.presented_fps = (self.presented - n0) as f64 / dt;
             self.presented_window = (now, self.presented);
         }
+        // Read by scripts/bench.sh to prove optimisations keep every frame.
+        if log::log_enabled!(target: "ztriton::stats", log::Level::Debug)
+            && let Some(p) = &self.player
+        {
+            log::debug!(
+                target: "ztriton::stats",
+                "time-pos={:.2} mpv_frames={} presented={} presented_fps={:.2} vo_drops={} decoder_drops={} hwdec={}",
+                self.status.position,
+                p.frames_rendered(),
+                self.presented,
+                self.presented_fps,
+                p.property_string("frame-drop-count"),
+                p.property_string("decoder-frame-drop-count"),
+                self.status.hwdec
+            );
+        }
         if crate::proof_mode() {
             let s = &self.status;
             proof_log(format!(
@@ -392,15 +406,7 @@ impl PlayerView {
             timer(t(3)).await;
             proof_log("proof: done");
             if std::env::var("ZTRITON_PROOF_QUIT").is_ok() {
-                cx.update(|cx| {
-                    if let Some(w) = cx.windows().first().copied() {
-                        w.update(cx, |_, window, cx| {
-                            this.update(cx, |v, cx| v.close(&ClosePlayer, Some(window), cx)).log_err();
-                        })
-                        .log_err();
-                    }
-                })
-                .log_err();
+                this.update(cx, |v, cx| v.close(cx)).log_err();
                 timer(t(2)).await;
                 cx.update(|cx| cx.quit()).log_err();
             }
@@ -408,25 +414,19 @@ impl PlayerView {
         .detach();
     }
 
-    /// Dump the exact BGRA bytes of the RenderImage GPUI is currently drawing.
+    /// Dump the pixel buffer GPUI is currently drawing.
     fn dump_presented_frame(&self, name: &str) {
-        let Some(image) = &self.image else {
+        let Some(frame) = &self.frame else {
             proof_log(format!("proof: no presented frame for {name}"));
             return;
         };
-        let size = image.size(0);
-        let (w, h) = (u32::try_from(size.width.0).unwrap_or(0), u32::try_from(size.height.0).unwrap_or(0));
-        let mut rgba = image.as_bytes(0).unwrap_or_default().to_vec();
-        for px in rgba.as_chunks_mut::<4>().0 {
-            px.swap(0, 2);
-        }
         let path = crate::proof_dir().join(name);
-        match image::RgbaImage::from_raw(w, h, rgba).map(|i| i.save(&path)) {
-            Some(Ok(())) => proof_log(format!(
-                "proof: dumped GPUI RenderImage id={:?} {w}x{h} (mpv frame seq {}) at time-pos {:.2}s -> {}",
-                image.id, self.seq, self.status.position, path.display()
+        match frame.save_png(&path) {
+            Ok(()) => proof_log(format!(
+                "proof: dumped presented NV12 surface {}x{} (mpv frame seq {}) at time-pos {:.2}s -> {}",
+                frame.width, frame.height, frame.seq, self.status.position, path.display()
             )),
-            other => proof_log(format!("proof: dump failed: {other:?}")),
+            Err(e) => proof_log(format!("proof: dump failed: {e:#}")),
         }
     }
 
@@ -511,8 +511,8 @@ impl PlayerView {
     fn fullscreen(&mut self, _: &Fullscreen, window: &mut Window, _: &mut Context<Self>) {
         window.toggle_fullscreen();
     }
-    fn on_close(&mut self, a: &ClosePlayer, window: &mut Window, cx: &mut Context<Self>) {
-        self.close(a, Some(window), cx);
+    fn on_close(&mut self, _: &ClosePlayer, _: &mut Window, cx: &mut Context<Self>) {
+        self.close(cx);
     }
 
     /// Stop playback immediately, then tear mpv down and report the stop to
@@ -532,7 +532,7 @@ impl PlayerView {
         }))
     }
 
-    fn close(&mut self, _: &ClosePlayer, window: Option<&mut Window>, cx: &mut Context<Self>) {
+    fn close(&mut self, cx: &mut Context<Self>) {
         if self.closed {
             return;
         }
@@ -540,31 +540,20 @@ impl PlayerView {
         if let Some(t) = self.shutdown(cx) {
             t.detach();
         }
-        if let (Some(window), Some(img)) = (window, self.image.take()) {
-            window.drop_image(img).log_err();
-        }
+        self.frame = None;
         cx.emit(Closed);
     }
 
-    fn upload_new_frame(&mut self, window: &mut Window) {
+    fn take_new_frame(&mut self) {
         let Some(p) = &self.player else { return };
-        let Some(frame) = p.take_frame_after(self.seq) else { return };
-        let frame = Arc::try_unwrap(frame).unwrap_or_else(|a| ztriton::player::VideoFrame {
-            width: a.width,
-            height: a.height,
-            bgra: a.bgra.clone(),
-            seq: a.seq,
-        });
-        let Some(buf) = image::RgbaImage::from_raw(frame.width, frame.height, frame.bgra) else { return };
-        let new = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buf)]));
-        if let Some(old) = self.image.replace(new) {
-            // Free the previous frame's atlas texture.
-            window.drop_image(old).log_err();
+        let Some(frame) = p.latest_frame() else { return };
+        if self.frame.as_ref().is_some_and(|shown| shown.seq == frame.seq) {
+            return;
         }
         if self.presented == 0 {
-            proof_log(format!("player: first frame presented via GPUI ({}x{})", frame.width, frame.height));
+            proof_log(format!("player: first frame presented via GPUI surface ({}x{})", frame.width, frame.height));
         }
-        self.seq = frame.seq;
+        self.frame = Some(frame);
         self.presented += 1;
     }
 
@@ -624,7 +613,7 @@ impl PlayerView {
                     .items_center()
                     .gap_4()
                     .child(
-                        btn("close", "✕").on_click(cx.listener(|this, _, w, cx| this.close(&ClosePlayer, Some(w), cx))),
+                        btn("close", "✕").on_click(cx.listener(|this, _, _, cx| this.close(cx))),
                     )
                     .child(
                         div()
@@ -791,21 +780,21 @@ impl Focusable for PlayerView {
 
 impl Render for PlayerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.upload_new_frame(window);
+        self.take_new_frame();
         if let Some(p) = &self.player {
             self.status = p.status(); // cached snapshot, no mpv round-trip
         }
 
         let show_controls = self.status.paused
             || self.subtitle_menu_open
-            || self.last_activity.elapsed() < Duration::from_secs(3) || self.image.is_none();
+            || self.last_activity.elapsed() < Duration::from_secs(3) || self.frame.is_none();
         let osd = self
             .osd
             .as_ref()
             .filter(|(_, t)| t.elapsed() < Duration::from_millis(1200))
             .map(|(m, _)| m.clone());
 
-        let video: AnyElement = match (&self.image, &self.error) {
+        let video: AnyElement = match (&self.frame, &self.error) {
             (_, Some(err)) => div()
                 .size_full()
                 .flex()
@@ -814,7 +803,10 @@ impl Render for PlayerView {
                 .text_color(gpui::red())
                 .child(format!("Playback error: {err}"))
                 .into_any_element(),
-            (Some(image), _) => img(image.clone()).size_full().object_fit(ObjectFit::Contain).into_any_element(),
+            (Some(frame), _) => gpui::surface(frame.pixel_buffer.clone())
+                .size_full()
+                .object_fit(ObjectFit::Contain)
+                .into_any_element(),
             (None, _) => div()
                 .size_full()
                 .flex()

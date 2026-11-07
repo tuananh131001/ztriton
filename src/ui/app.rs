@@ -133,7 +133,7 @@ impl ZtritonApp {
         self.stack = vec![Screen::Home];
         self.shelves.clear();
         self.views.clear();
-        self.images.clear();
+        self.release_images(window);
         self.jf = Some(jf.clone());
         window.focus(&self.focus);
         self.load_home(jf, cx);
@@ -161,7 +161,7 @@ impl ZtritonApp {
         .detach();
         self.shelves.clear();
         self.views.clear();
-        self.images.clear();
+        self.release_images(window);
         cx.notify();
     }
 
@@ -270,17 +270,32 @@ impl ZtritonApp {
                 .spawn(async move { decode_render_image(&jf.fetch_bytes(&u)?, max_w) })
                 .await;
             this.update(cx, |this, cx| {
-                let state = match res {
-                    Ok(i) => ImgState::Ready(i),
-                    Err(_) => ImgState::Failed,
+                // The cache may have been released meanwhile (player opened,
+                // signed out); don't refill it behind its back.
+                let Some(slot @ ImgState::Loading) = this.images.get_mut(&url) else { return };
+                *slot = match res {
+                    Ok(image) => ImgState::Ready(image),
+                    Err(e) => {
+                        log::warn!("image {}: {e:#}", ztriton::jellyfin::redact(&url));
+                        ImgState::Failed
+                    }
                 };
-                drop(this.images.insert(url, state));
                 cx.notify();
             })
             .log_err();
         })
         .detach();
         None
+    }
+
+    /// Free every decoded image, both the CPU copy and its GPU atlas tile.
+    /// Screens re-fetch what they show the next time they render.
+    fn release_images(&mut self, window: &mut Window) {
+        for (_, state) in self.images.drain() {
+            if let ImgState::Ready(image) = state {
+                window.drop_image(image).log_err();
+            }
+        }
     }
 
     fn open(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
@@ -318,6 +333,9 @@ impl ZtritonApp {
 
     fn play(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
         let Some(jf) = self.jf.clone() else { return };
+        // Posters and backdrops are hidden for the whole playback; holding them
+        // would keep tens of MB of RAM and GPU memory busy.
+        self.release_images(window);
         let view = cx.new(|cx| PlayerView::new(jf, item, window, cx));
         cx.subscribe_in(&view, window, |this, _, _: &super::player_view::Closed, window, cx| {
             if matches!(this.stack.last(), Some(Screen::Player(_))) {

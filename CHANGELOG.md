@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Video now stays on the GPU: mpv decodes with VideoToolbox and renders through OpenGL into IOSurfaces that the UI draws with Metal. Playback CPU use drops from about 46% to about 19% of a core and memory from about 450 MB to about 280 MB (Apple M1, 1080p H.264), still at full frame rate.
+- Posters and backdrops are freed while a video plays, mpv's unused built-in scripts are no longer loaded, and the network cache is capped at 32 MiB ahead / 8 MiB behind.
+- `make bench` measures CPU, memory and frame rate during playback (`scripts/bench.sh`).
+
 ## 0.0.2 — 2026-11-07
 
 - Full screen button in the top-right corner of the player, page headers and sign-in screen.

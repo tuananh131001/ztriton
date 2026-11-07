@@ -117,7 +117,7 @@ fn external_subtitles_choose_and_remember() -> Result<()> {
     ensure!(off_text.is_empty() && selected_subtitle(&player).is_none(), "subtitles not off");
     let without_subtitle = player.latest_frame().ok_or_else(|| anyhow!("no frame"))?;
     without_subtitle.save_png(&out.join("subtitle_off_frame.png"))?;
-    ensure!(with_subtitle.fingerprint() != without_subtitle.fingerprint(), "frame unchanged when subtitles turned off");
+    ensure!(with_subtitle.fingerprint()? != without_subtitle.fingerprint()?, "frame unchanged when subtitles turned off");
 
     player.select_subtitle(Some(english.id))?;
     let english_text = pause_on_cue(&player)?;
