@@ -396,6 +396,15 @@ impl ZtritonApp {
             if matches!(this.stack.last(), Some(Screen::Player(_))) {
                 this.pop(cx);
             }
+            // The player saved its position before emitting Closed; show it now
+            // rather than only once (and if) the server answers.
+            let local = match this.stack.last() {
+                Some(Screen::Detail { item, .. }) if item.id == item_id => Some(this.start_position(item)),
+                _ => None,
+            };
+            if let (Some(resume), Some(Screen::Detail { resume_secs, .. })) = (local, this.stack.last_mut()) {
+                *resume_secs = resume;
+            }
             this.refresh_detail(item_id.clone(), cx);
             window.focus(&this.focus);
         })
@@ -748,7 +757,10 @@ impl ZtritonApp {
                                                     if resume > 5.0 { format!("▶  Resume from {}", fmt_time(resume)) } else { "▶  Play".into() },
                                                     true,
                                                 )
-                                                .on_click(cx.listener(move |this, _, window, cx| this.play(it_play.clone(), resume, window, cx))),
+                                                .on_click(cx.listener(move |this, _, window, cx| {
+                                                    let start = this.start_position(&it_play);
+                                                    this.play(it_play.clone(), start, window, cx)
+                                                })),
                                             )
                                             .when(resume > 5.0, |d| {
                                                 d.child(button("restart", "Play from Beginning".into(), false).on_click(cx.listener(

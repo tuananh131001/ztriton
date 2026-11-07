@@ -15,10 +15,15 @@ use std::path::{Path, PathBuf};
 /// over next time (Jellyfin's default `MaxResumePct` is 90).
 const FINISHED_FRACTION: f64 = 0.9;
 
-/// Jellyfin bumps `LastPlayedDate` on every progress and stop report, and the
-/// app reports right after saving here, so a server date only this much newer
-/// is still this Mac's own playback. Also absorbs clock skew with the server.
+/// Jellyfin bumps `LastPlayedDate` when playback starts (some versions also
+/// on progress and stop reports), and the app reports right after saving here,
+/// so a server date only this much newer may still be this Mac's own report.
+/// Also absorbs clock skew with the server.
 const OWN_REPORT_GRACE_SECS: f64 = 60.0;
+
+/// Our own report leaves the server at our position (or 0, under its minimum
+/// resume percentage); progress is reported every 10 s.
+const OWN_REPORT_POSITION_TOLERANCE_SECS: f64 = 15.0;
 
 /// The last position this Mac played a video to.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -113,10 +118,13 @@ fn choose_start(item: &Item, saved: Option<SavedPosition>) -> f64 {
         .as_ref()
         .and_then(|data| data.last_played_date.as_deref())
         .and_then(parse_utc_timestamp);
-    match server_played_at {
-        Some(played_at) if played_at > saved.saved_at + OWN_REPORT_GRACE_SECS => server,
-        _ => saved.position_secs,
+    let Some(played_at) = server_played_at else { return saved.position_secs };
+    if played_at <= saved.saved_at {
+        return saved.position_secs;
     }
+    let could_be_own_report = played_at <= saved.saved_at + OWN_REPORT_GRACE_SECS
+        && (server == 0.0 || (server - saved.position_secs).abs() <= OWN_REPORT_POSITION_TOLERANCE_SECS);
+    if could_be_own_report { saved.position_secs } else { server }
 }
 
 /// Seconds since the Unix epoch of a UTC timestamp as Jellyfin writes it,
@@ -204,6 +212,21 @@ mod tests {
         let item = movie(0.0, Some("2026-11-07T02:46:38.2050484Z"));
         let saved = SavedPosition { position_secs: 120.0, saved_at: 1_794_019_598.167 };
         assert_eq!(choose_start(&item, Some(saved)), 120.0);
+    }
+
+    #[test]
+    fn quick_handoff_to_another_device_is_not_mistaken_for_our_report() {
+        // Saved here at 02:46:38; another device started 30 s later and is at 50 min.
+        let item = movie(3000.0, Some("2026-11-07T02:47:08Z"));
+        let saved = SavedPosition { position_secs: 120.0, saved_at: 1_794_019_598.0 };
+        assert_eq!(choose_start(&item, Some(saved)), 3000.0);
+    }
+
+    #[test]
+    fn own_progress_report_echo_keeps_the_saved_position() {
+        let item = movie(600.0, Some("2026-11-07T02:46:39Z"));
+        let saved = SavedPosition { position_secs: 605.0, saved_at: 1_794_019_598.0 };
+        assert_eq!(choose_start(&item, Some(saved)), 605.0);
     }
 
     #[test]

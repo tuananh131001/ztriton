@@ -530,12 +530,11 @@ impl PlayerView {
     fn shutdown(&mut self, cx: &mut Context<Self>) -> Option<gpui::Task<()>> {
         let p = self.player.take()?;
         let status = p.status();
-        let playing = playing_position(&p, &status);
+        // Closed before the first frame: the start report already made the
+        // server's copy newer (and 0 if under its minimum), so re-save `start`.
+        let pos = playing_position(&p, &status).unwrap_or(self.start);
         p.stop(); // cheap async command: audio/video stop right now
-        if let Some(position) = playing {
-            self.save_position(position, status.duration);
-        }
-        let pos = playing.unwrap_or(self.start);
+        self.save_position(pos, status.duration);
         proof_log(format!("player: closing at {pos:.2}s, reporting stop to Jellyfin"));
         let jf = self.jf.clone();
         let id = self.item.id.clone();
