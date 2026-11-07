@@ -1,0 +1,5 @@
+[2026-11-07T03:07:51Z INFO  ztriton::ui::app] playing '2012' (3455aa84003ec4dcb608f1a52320f7da) from 201.87s
+[2026-11-07T03:07:51Z INFO  ztriton::player] mpv: libmpv loaded: client API 2.6, mpv v0.42.0
+[2026-11-07T03:07:51Z INFO  ztriton::player] mpv: OpenGL render context created (frames -> NV12 IOSurface -> Metal)
+[2026-11-07T03:07:51Z INFO  ztriton::player] mpv: start-file
+[2026-11-07T03:07:51Z INFO  ztriton::player] mpv: end-file reason=2

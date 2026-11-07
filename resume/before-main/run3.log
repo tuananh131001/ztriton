@@ -1,0 +1,3 @@
+[2026-11-07T03:09:17Z INFO  ztriton::player] mpv: libmpv loaded: client API 2.6, mpv v0.42.0
+[2026-11-07T03:09:17Z INFO  ztriton::player] mpv: OpenGL render context created (frames -> NV12 IOSurface -> Metal)
+[2026-11-07T03:09:17Z INFO  ztriton::player] mpv: start-file

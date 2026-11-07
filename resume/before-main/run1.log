@@ -1,0 +1,23 @@
+[2026-11-07T03:08:30Z INFO  ztriton::player] mpv: libmpv loaded: client API 2.6, mpv v0.42.0
+[2026-11-07T03:08:30Z INFO  ztriton::player] mpv: OpenGL render context created (frames -> NV12 IOSurface -> Metal)
+[2026-11-07T03:08:31Z INFO  ztriton::player] mpv: start-file
+[2026-11-07T03:08:31Z INFO  ztriton::player] mpv: file-loaded: 1920x816 codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 duration=9469.6s
+[2026-11-07T03:08:31Z INFO  ztriton::player] mpv: sub-add: Undefined - SUBRIP - External
+[2026-11-07T03:08:31Z INFO  ztriton::player] mpv: sub-add: Vietnamese - SUBRIP - External
+[2026-11-07T03:08:31Z INFO  ztriton::player] mpv: video-reconfig: display 0x0 hwdec=videotoolbox
+[2026-11-07T03:08:31Z INFO  ztriton::player] mpv: video-reconfig: display 0x0 hwdec=videotoolbox
+[2026-11-07T03:08:31Z INFO  ztriton::player] mpv: playback-restart at 0.13s
+[2026-11-07T03:08:32Z DEBUG ztriton::stats] time-pos=0.58 mpv_frames=12 presented=11 presented_fps=9.43 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:33Z DEBUG ztriton::stats] time-pos=1.63 mpv_frames=37 presented=36 presented_fps=23.81 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:34Z DEBUG ztriton::stats] time-pos=2.67 mpv_frames=62 presented=61 presented_fps=23.82 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:35Z INFO  ztriton::player] mpv: playback-restart at 70.99s
+[2026-11-07T03:08:35Z DEBUG ztriton::stats] time-pos=71.03 mpv_frames=88 presented=86 presented_fps=23.81 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:36Z DEBUG ztriton::stats] time-pos=72.07 mpv_frames=113 presented=110 presented_fps=22.86 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:36Z INFO  ztriton::player] mpv: playback-restart at 133.59s
+[2026-11-07T03:08:37Z DEBUG ztriton::stats] time-pos=134.05 mpv_frames=138 presented=135 presented_fps=23.80 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:38Z DEBUG ztriton::stats] time-pos=135.09 mpv_frames=163 presented=160 presented_fps=23.81 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:39Z DEBUG ztriton::stats] time-pos=136.14 mpv_frames=188 presented=185 presented_fps=23.81 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:40Z DEBUG ztriton::stats] time-pos=137.18 mpv_frames=213 presented=210 presented_fps=23.81 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:41Z DEBUG ztriton::stats] time-pos=137.68 mpv_frames=228 presented=224 presented_fps=13.33 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:42Z DEBUG ztriton::stats] time-pos=137.68 mpv_frames=228 presented=224 presented_fps=0.00 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:08:43Z DEBUG ztriton::stats] time-pos=137.68 mpv_frames=228 presented=224 presented_fps=0.00 vo_drops=0 decoder_drops=0 hwdec=videotoolbox

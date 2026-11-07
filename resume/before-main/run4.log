@@ -1,0 +1,13 @@
+[2026-11-07T03:09:29Z INFO  ztriton::player] mpv: libmpv loaded: client API 2.6, mpv v0.42.0
+[2026-11-07T03:09:29Z INFO  ztriton::player] mpv: OpenGL render context created (frames -> NV12 IOSurface -> Metal)
+[2026-11-07T03:09:29Z INFO  ztriton::player] mpv: start-file
+[2026-11-07T03:09:30Z INFO  ztriton::player] mpv: file-loaded: 1920x816 codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 duration=9469.6s
+[2026-11-07T03:09:30Z INFO  ztriton::player] mpv: sub-add: Undefined - SUBRIP - External
+[2026-11-07T03:09:30Z INFO  ztriton::player] mpv: sub-add: Vietnamese - SUBRIP - External
+[2026-11-07T03:09:30Z INFO  ztriton::player] mpv: video-reconfig: display 0x0 hwdec=videotoolbox
+[2026-11-07T03:09:30Z INFO  ztriton::player] mpv: video-reconfig: display 0x0 hwdec=videotoolbox
+[2026-11-07T03:09:30Z INFO  ztriton::player] mpv: playback-restart at 0.13s
+[2026-11-07T03:09:30Z DEBUG ztriton::stats] time-pos=0.63 mpv_frames=13 presented=13 presented_fps=11.13 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:09:31Z DEBUG ztriton::stats] time-pos=1.63 mpv_frames=37 presented=37 presented_fps=22.89 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:09:32Z DEBUG ztriton::stats] time-pos=2.38 mpv_frames=58 presented=56 presented_fps=18.11 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
+[2026-11-07T03:09:33Z DEBUG ztriton::stats] time-pos=2.38 mpv_frames=58 presented=56 presented_fps=0.00 vo_drops=0 decoder_drops=0 hwdec=videotoolbox
