@@ -4,6 +4,7 @@
     reason = "Cargo shares one dependency list between the library, the app binary and the tests"
 )]
 
+mod gpu_video;
 pub mod jellyfin;
 pub mod player;
 pub mod keychain;

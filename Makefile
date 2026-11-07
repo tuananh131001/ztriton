@@ -4,6 +4,8 @@
 #   make app        build dist/ztriton.app
 #   make install    install to ~/Applications + `ztriton` CLI link
 #   make uninstall  remove app and CLI link (keeps Keychain login/device id)
+#   make bench      CPU/memory benchmark of the release build while playing
+#                   (needs a signed-in session); results in proof/perf/
 #   make test       unit tests + headless e2e tests; live-server tests read
 #                   JELLYFIN_URL / JELLYFIN_USER / JELLYFIN_PASSWORD from the
 #                   environment or the git-ignored .env (cp .env.example .env)
@@ -33,7 +35,7 @@ SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning | awk -F'"' '/
 TARGET_BIN := target/release/$(APP_NAME)
 BUNDLE     := dist/$(APP_NAME).app
 
-.PHONY: all build app install uninstall test check-deps clean
+.PHONY: all build app install uninstall test bench check-deps clean
 
 all: build
 
@@ -89,6 +91,10 @@ uninstall:
 
 test: check-deps
 	cargo test --release -- --nocapture --test-threads=1
+
+bench: build
+	scripts/bench.sh $(TARGET_BIN)
+	MODE=idle scripts/bench.sh $(TARGET_BIN)
 
 clean:
 	cargo clean

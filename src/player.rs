@@ -3,41 +3,55 @@
 //! * `libmpv2::Mpv` drives playback (options, commands, events).
 //! * Player state is *observed* (`observe_property`) on the event thread and
 //!   cached, so UI reads never block on the mpv core lock.
-//! * Video frames come from mpv's *software* render API
-//!   (`MPV_RENDER_API_TYPE_SW`) on a dedicated render thread that only calls
-//!   `mpv_render_*` functions (as required by render.h's threading rules).
-//!   Frames are converted to tightly packed BGRA and published as
-//!   [`VideoFrame`]s that the UI uploads to the GPU through GPUI.
+//! * Video frames come from mpv's OpenGL render API on a dedicated render
+//!   thread that only calls `mpv_render_*` functions (as required by
+//!   render.h's threading rules) and owns an offscreen GL context. Each frame
+//!   stays on the GPU: it is converted to an NV12 IOSurface (see
+//!   [`crate::gpu_video`]) and published as a [`VideoFrame`] that GPUI draws
+//!   with Metal.
 
 use anyhow::{Result, anyhow, bail};
 use libmpv2::{
     Format, Mpv, SetData,
     events::{Event, PropertyData},
 };
+use core_video::pixel_buffer::{CVPixelBuffer, kCVPixelBufferLock_ReadOnly};
 use libmpv2_sys as sys;
 use parking_lot::{Condvar, Mutex};
-use std::ffi::{CStr, c_void};
+use crate::gpu_video::{GlContext, Nv12Converter};
+use std::ffi::{CStr, c_int, c_void};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-/// Largest frame we ask the software renderer for. 4K sources are scaled
-/// down by mpv to keep the CPU path real-time.
+/// Largest frame we ask mpv to render. 4K sources are scaled down by mpv on
+/// the GPU, which keeps each frame buffer at 3 MB.
 const MAX_W: u32 = 1920;
 const MAX_H: u32 = 1080;
 
-/// One decoded, display-ready frame, tightly packed BGRA (alpha = 255).
+/// One display-ready frame: an IOSurface-backed NV12 (BT.601 full range)
+/// pixel buffer that GPUI's `surface()` element draws directly.
 pub struct VideoFrame {
     /// Width in pixels.
     pub width: u32,
     /// Height in pixels.
     pub height: u32,
-    /// `width * height * 4` bytes, row-major, no padding.
-    pub bgra: Vec<u8>,
+    /// The frame's pixels, never written again after publication.
+    pub pixel_buffer: CVPixelBuffer,
     /// Increases by one for every rendered frame.
     pub seq: u64,
 }
+
+// SAFETY: CVPixelBuffer is a reference-counted CoreFoundation object whose
+// retain/release are thread-safe. The render thread finishes writing (and waits
+// for the GPU) before publishing, and the pool only recycles a buffer once every
+// reference is gone, so shared access is read-only.
+#[expect(unsafe_code, reason = "CVPixelBuffer is not marked Send by core-video")]
+unsafe impl Send for VideoFrame {}
+// SAFETY: see the Send impl; `&VideoFrame` only allows reads.
+#[expect(unsafe_code, reason = "CVPixelBuffer is not marked Sync by core-video")]
+unsafe impl Sync for VideoFrame {}
 
 impl std::fmt::Debug for VideoFrame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -256,7 +270,9 @@ impl Player {
 
         let mpv = Mpv::with_initializer(|init| {
             init.set_option("vo", "libmpv")?;
-            init.set_option("hwdec", "auto-copy")?;
+            // Zero-copy VideoToolbox decoding into GL textures; auto-safe
+            // falls back to software decoding for unsupported codecs.
+            init.set_option("hwdec", "auto-safe")?;
             init.set_option("keep-open", "yes")?;
             init.set_option("idle", "yes")?;
             init.set_option("terminal", "no")?;
@@ -264,8 +280,26 @@ impl Player {
             init.set_option("input-default-bindings", "no")?;
             init.set_option("osc", "no")?;
             init.set_option("ytdl", "no")?;
+            // Built-in Lua scripts (each its own VM and thread) and input
+            // handlers that only matter for mpv's own window; the UI uses none.
+            for script in [
+                "load-scripts",
+                "load-stats-overlay",
+                "load-console",
+                "load-select",
+                "load-positioning",
+                "load-commands",
+                "load-context-menu",
+                "load-auto-profiles",
+                "input-builtin-drag-and-drop",
+            ] {
+                init.set_option(script, "no")?;
+            }
             init.set_option("cache", "yes")?;
-            init.set_option("demuxer-max-bytes", "150MiB")?;
+            // 20 s ahead covers network hiccups; the caps bound RAM for
+            // high-bitrate files (mpv keeps 50 MiB behind by default).
+            init.set_option("demuxer-max-bytes", "32MiB")?;
+            init.set_option("demuxer-max-back-bytes", "8MiB")?;
             init.set_option("demuxer-readahead-secs", "20")?;
             init.set_option("sub-auto", "fuzzy")?;
             init.set_option("volume", opts.volume)?;
@@ -414,16 +448,6 @@ impl Player {
     /// The newest rendered frame, if any.
     pub fn latest_frame(&self) -> Option<Arc<VideoFrame>> {
         self.shared.latest.lock().clone()
-    }
-
-    /// Take the newest frame if it is newer than `after_seq` (UI path: avoids an
-    /// 8 MB clone per frame when the UI is the only holder).
-    pub fn take_frame_after(&self, after_seq: u64) -> Option<Arc<VideoFrame>> {
-        let mut slot = self.shared.latest.lock();
-        match slot.as_ref() {
-            Some(f) if f.seq > after_seq => slot.take(),
-            _ => None,
-        }
     }
 
     /// Number of frames rendered since creation.
@@ -678,7 +702,7 @@ fn event_loop(mpv: Arc<Mpv>, shared: Arc<Shared>) {
 }
 
 // ---------------------------------------------------------------------------
-// Software render thread: calls ONLY mpv_render_* functions.
+// Render thread: owns the GL context and calls ONLY mpv_render_* functions.
 // ---------------------------------------------------------------------------
 
 #[expect(unsafe_code, reason = "C callback for the mpv render API")]
@@ -720,54 +744,82 @@ struct RenderCtx(*mut sys::mpv_render_context);
 impl Drop for RenderCtx {
     #[expect(unsafe_code, reason = "frees the mpv render context")]
     fn drop(&mut self) {
-        // SAFETY: created by mpv_render_context_create, and freed only here.
+        // SAFETY: created by mpv_render_context_create, and freed only here, while
+        // the GL context it was created on is still current.
         unsafe { sys::mpv_render_context_free(self.0) };
     }
 }
 
-/// 64-byte aligned scratch buffer (mpv recommends 64-byte aligned SW targets).
-#[repr(C, align(64))]
-#[derive(Clone, Copy)]
-struct Chunk([u8; 64]);
-
-#[expect(unsafe_code, reason = "calls the mpv software render API")]
-fn sw_render(rctx: &RenderCtx, fmt: &CStr, w: u32, h: u32, stride: usize, ptr: *mut c_void) -> i32 {
-    let mut size = [w as i32, h as i32];
-    let mut stride_sz: usize = stride;
+#[expect(unsafe_code, reason = "calls the mpv OpenGL render API")]
+fn gl_render(rctx: &RenderCtx, framebuffer: u32, width: u32, height: u32) -> i32 {
+    let (Ok(fbo), Ok(w), Ok(h)) = (c_int::try_from(framebuffer), c_int::try_from(width), c_int::try_from(height)) else {
+        return sys::mpv_error_MPV_ERROR_INVALID_PARAMETER;
+    };
+    let mut target = sys::mpv_opengl_fbo { fbo, w, h, internal_format: gl::RGBA8 as c_int };
+    // Unflipped: row 0 of the texture is the top of the picture, matching the
+    // top-down row order of the IOSurface it is converted into.
+    let mut flip_y: c_int = 0;
     let mut params = [
         sys::mpv_render_param {
-            type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_SW_SIZE,
-            data: size.as_mut_ptr() as *mut c_void,
+            type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_FBO,
+            data: (&raw mut target).cast::<c_void>(),
         },
         sys::mpv_render_param {
-            type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_SW_FORMAT,
-            data: fmt.as_ptr() as *mut c_void,
-        },
-        sys::mpv_render_param {
-            type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_SW_STRIDE,
-            data: &mut stride_sz as *mut usize as *mut c_void,
-        },
-        sys::mpv_render_param {
-            type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_SW_POINTER,
-            data: ptr,
+            type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_FLIP_Y,
+            data: (&raw mut flip_y).cast::<c_void>(),
         },
         sys::mpv_render_param {
             type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
             data: std::ptr::null_mut(),
         },
     ];
-    // SAFETY: `rctx` is live, and every param points at locals (or the caller's
-    // buffer of `stride * h` bytes) that outlive this synchronous call.
+    // SAFETY: `rctx` is live and its GL context is current on this thread; every
+    // param points at locals that outlive this synchronous call.
     unsafe { sys::mpv_render_context_render(rctx.0, params.as_mut_ptr()) }
+}
+
+/// Logs a render error once rather than for every frame, so a persistent
+/// failure cannot grow the event log without bound.
+#[derive(Default)]
+struct ErrorOnce(Option<String>);
+
+impl ErrorOnce {
+    fn report(&mut self, shared: &Shared, message: String) {
+        if self.0.as_ref() != Some(&message) {
+            shared.log_event(message.clone());
+            self.0 = Some(message);
+        }
+    }
 }
 
 #[expect(unsafe_code, reason = "owns the mpv render context (C API)")]
 fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sender<Result<()>>) {
-    let api_sw = c"sw";
+    let fail = |error: anyhow::Error| {
+        let message = format!("{error:#}");
+        if ready.send(Err(error)).is_err() {
+            log::error!("render thread setup failed after Player::new gave up: {message}");
+        }
+    };
+    // Declared before `rctx`, so they drop after it: mpv frees its GL objects
+    // while the context is still current.
+    let (gl_context, mut converter) = match GlContext::new_current()
+        .and_then(|context| Nv12Converter::new(&context).map(|converter| (context, converter)))
+    {
+        Ok(setup) => setup,
+        Err(e) => return fail(e.context("OpenGL setup for video failed")),
+    };
+    let mut init = sys::mpv_opengl_init_params {
+        get_proc_address: Some(crate::gpu_video::mpv_get_proc_address),
+        get_proc_address_ctx: std::ptr::null_mut(),
+    };
     let mut params = [
         sys::mpv_render_param {
             type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE,
-            data: api_sw.as_ptr() as *mut c_void,
+            data: c"opengl".as_ptr() as *mut c_void,
+        },
+        sys::mpv_render_param {
+            type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
+            data: (&raw mut init).cast::<c_void>(),
         },
         sys::mpv_render_param {
             type_: sys::mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
@@ -775,17 +827,13 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
         },
     ];
     let mut raw: *mut sys::mpv_render_context = std::ptr::null_mut();
-    // SAFETY: `mpv` is a live handle, `raw` is a valid out-pointer, and `params`
-    // is terminated by MPV_RENDER_PARAM_INVALID.
+    // SAFETY: `mpv` is a live handle, `raw` is a valid out-pointer, `params` is
+    // terminated by MPV_RENDER_PARAM_INVALID, and the GL context is current.
     let rc = unsafe { sys::mpv_render_context_create(&mut raw, mpv.ctx.as_ptr(), params.as_mut_ptr()) };
     // From here on the render thread never touches `mpv` (client API) again.
     drop(mpv);
     if rc < 0 || raw.is_null() {
-        let msg = mpv_error_message(rc);
-        if ready.send(Err(anyhow!("mpv_render_context_create(sw) failed: {msg}"))).is_err() {
-            log::error!("render context creation failed after Player::new gave up: {msg}");
-        }
-        return;
+        return fail(anyhow!("mpv_render_context_create(opengl) failed: {}", mpv_error_message(rc)));
     }
     let rctx = RenderCtx(raw);
     // SAFETY: `shared` (an Arc held until the callback is cleared below) outlives
@@ -793,16 +841,13 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
     unsafe {
         sys::mpv_render_context_set_update_callback(rctx.0, Some(on_mpv_update), Arc::as_ptr(&shared) as *mut c_void);
     }
-    shared.log_event("sw render context created (MPV_RENDER_API_TYPE_SW)".into());
+    shared.log_event("OpenGL render context created (frames -> NV12 IOSurface -> Metal)".into());
     if ready.send(Ok(())).is_err() {
         // Player::new is gone, so nobody will ever stop this thread.
         return;
     }
 
-    let fmt = c"bgr0";
-    let mut scratch: Vec<Chunk> = Vec::new();
-    let mut tiny = [Chunk([0; 64]); 4];
-
+    let mut errors = ErrorOnce::default();
     while !shared.stop.load(Ordering::SeqCst) {
         {
             let mut dirty = shared.dirty.lock();
@@ -822,47 +867,38 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
 
         let packed = shared.dsize.load(Ordering::Acquire);
         let (dw, dh) = ((packed >> 32) as u32, (packed & 0xffff_ffff) as u32);
-        if dw == 0 || dh == 0 {
-            // Size not known yet (or audio-only): still consume the frame so the
-            // VO never waits on us, into a throwaway 16x4 target.
-            let rc = sw_render(&rctx, fmt, 16, 4, 64, tiny.as_mut_ptr() as *mut c_void);
-            if rc < 0 {
-                shared.log_event(format!("sw render (discard) error {rc}"));
+        // Size not known yet (or audio-only): still consume the frame so the VO
+        // never waits on us, into a tiny target that is not published.
+        let publish = dw != 0 && dh != 0;
+        let (w, h) = if publish { render_size(dw, dh) } else { (16, 16) };
+        let framebuffer = match converter.target(w, h) {
+            Ok(framebuffer) => framebuffer,
+            Err(e) => {
+                errors.report(&shared, format!("render target {w}x{h}: {e:#}"));
+                continue;
             }
-            continue;
-        }
-        let (w, h) = render_size(dw, dh);
-
-        let row = w as usize * 4;
-        let stride = (row + 63) & !63;
-        let need_chunks = (stride * h as usize).div_ceil(64);
-        if scratch.len() < need_chunks {
-            scratch.resize(need_chunks, Chunk([0; 64]));
-        }
-        let rc = sw_render(&rctx, fmt, w, h, stride, scratch.as_mut_ptr() as *mut c_void);
+        };
+        let rc = gl_render(&rctx, framebuffer, w, h);
         if rc < 0 {
-            let msg = mpv_error_message(rc);
-            shared.log_event(format!("sw render error: {msg}"));
+            errors.report(&shared, format!("render error: {}", mpv_error_message(rc)));
             continue;
         }
-
-        // Pack rows (no-op layout when stride == row) and force opaque alpha.
-        // SAFETY: `scratch` holds at least `need_chunks * 64 >= stride * h` initialised
-        // bytes, and is not mutated while `src` is alive.
-        let src = unsafe { std::slice::from_raw_parts(scratch.as_ptr() as *const u8, stride * h as usize) };
-        let mut bgra = Vec::with_capacity(row * h as usize);
-        for line in src.chunks_exact(stride) {
-            bgra.extend_from_slice(line.get(..row).unwrap_or_default());
+        if !publish {
+            continue;
         }
-        for px in bgra.as_chunks_mut::<4>().0 {
-            px[3] = 255;
-        }
+        let pixel_buffer = match converter.convert() {
+            Ok(pixel_buffer) => pixel_buffer,
+            Err(e) => {
+                errors.report(&shared, format!("NV12 conversion: {e:#}"));
+                continue;
+            }
+        };
 
         let seq = shared.frames_rendered.fetch_add(1, Ordering::Relaxed) + 1;
         *shared.latest.lock() = Some(Arc::new(VideoFrame {
             width: w,
             height: h,
-            bgra,
+            pixel_buffer,
             seq,
         }));
         // Clone the callback out of the lock before invoking it.
@@ -877,45 +913,123 @@ fn render_loop(mpv: Arc<Mpv>, shared: Arc<Shared>, ready: std::sync::mpsc::Sende
         sys::mpv_render_context_set_update_callback(rctx.0, None, std::ptr::null_mut());
     }
     drop(rctx);
+    drop(converter);
+    drop(gl_context);
+}
+
+/// CPU view of a frame's NV12 planes (proof artifacts and tests only).
+struct Nv12Planes<'a> {
+    luma: &'a [u8],
+    luma_stride: usize,
+    chroma: &'a [u8],
+    chroma_stride: usize,
+}
+
+impl Nv12Planes<'_> {
+    /// `(y, cb, cr)` at pixel `(x, y)`; out-of-range reads give black.
+    fn sample(&self, x: usize, y: usize) -> (u8, u8, u8) {
+        let luma = self.luma.get(y * self.luma_stride + x).copied().unwrap_or(0);
+        let chroma = (y / 2) * self.chroma_stride + (x / 2) * 2;
+        let cb = self.chroma.get(chroma).copied().unwrap_or(128);
+        let cr = self.chroma.get(chroma + 1).copied().unwrap_or(128);
+        (luma, cb, cr)
+    }
 }
 
 impl VideoFrame {
-    /// Save as PNG (BGRA -> RGBA) for proof artifacts.
-    pub fn save_png(&self, path: &std::path::Path) -> Result<()> {
-        let mut rgba = self.bgra.clone();
-        for px in rgba.as_chunks_mut::<4>().0 {
-            px.swap(0, 2);
+    #[expect(unsafe_code, reason = "reads the locked CVPixelBuffer planes")]
+    fn read_planes<R>(&self, read: impl FnOnce(&Nv12Planes<'_>) -> R) -> Result<R> {
+        let buffer = &self.pixel_buffer;
+        let locked = buffer.lock_base_address(kCVPixelBufferLock_ReadOnly);
+        if locked != 0 {
+            bail!("CVPixelBufferLockBaseAddress failed ({locked})");
         }
-        let img = image::RgbaImage::from_raw(self.width, self.height, rgba)
-            .ok_or_else(|| anyhow!("bad frame buffer"))?;
+        let plane = |index: usize| -> &[u8] {
+            // SAFETY: the buffer is locked until after `read` returns, so the plane's
+            // base address stays valid for `bytes_per_row * height` bytes.
+            let base = unsafe { buffer.get_base_address_of_plane(index) };
+            if base.is_null() {
+                return &[];
+            }
+            let length = buffer.get_bytes_per_row_of_plane(index) * buffer.get_height_of_plane(index);
+            // SAFETY: see above; the slice is only read.
+            unsafe { std::slice::from_raw_parts(base.cast::<u8>(), length) }
+        };
+        let planes = Nv12Planes {
+            luma: plane(0),
+            luma_stride: buffer.get_bytes_per_row_of_plane(0),
+            chroma: plane(1),
+            chroma_stride: buffer.get_bytes_per_row_of_plane(1),
+        };
+        let result = read(&planes);
+        let unlocked = buffer.unlock_base_address(kCVPixelBufferLock_ReadOnly);
+        if unlocked != 0 {
+            log::warn!("CVPixelBufferUnlockBaseAddress failed ({unlocked})");
+        }
+        Ok(result)
+    }
+
+    /// Save as PNG for proof artifacts, using the same BT.601 full-range
+    /// conversion as GPUI's surface shader.
+    pub fn save_png(&self, path: &std::path::Path) -> Result<()> {
+        let (width, height) = (self.width as usize, self.height as usize);
+        let rgba = self.read_planes(|planes| {
+            let mut rgba = Vec::with_capacity(width * height * 4);
+            for y in 0..height {
+                for x in 0..width {
+                    let (luma, cb, cr) = planes.sample(x, y);
+                    let (luma, cb, cr) = (f32::from(luma), f32::from(cb) - 128.0, f32::from(cr) - 128.0);
+                    let channel = |value: f32| value.round().clamp(0.0, 255.0) as u8;
+                    rgba.extend_from_slice(&[
+                        channel(luma + 1.402 * cr),
+                        channel(luma - 0.3441 * cb - 0.7141 * cr),
+                        channel(luma + 1.772 * cb),
+                        255,
+                    ]);
+                }
+            }
+            rgba
+        })?;
+        let img = image::RgbaImage::from_raw(self.width, self.height, rgba).ok_or_else(|| anyhow!("bad frame buffer"))?;
         img.save(path)?;
         Ok(())
     }
 
     /// Luma variance — a solid/black frame has ~0.
-    pub fn luma_variance(&self) -> f64 {
-        let (mut n, mut sum, mut sq) = (0f64, 0f64, 0f64);
-        for px in self.bgra.as_chunks::<4>().0.iter().step_by(7) {
-            let y = 0.114 * px[0] as f64 + 0.587 * px[1] as f64 + 0.299 * px[2] as f64;
-            n += 1.0;
-            sum += y;
-            sq += y * y;
-        }
-        if n == 0.0 {
-            return 0.0;
-        }
-        let mean = sum / n;
-        sq / n - mean * mean
+    pub fn luma_variance(&self) -> Result<f64> {
+        let (width, height) = (self.width as usize, self.height as usize);
+        self.read_planes(|planes| {
+            let (mut n, mut sum, mut sq) = (0f64, 0f64, 0f64);
+            for y in (0..height).step_by(7) {
+                for x in (0..width).step_by(7) {
+                    let luma = f64::from(planes.sample(x, y).0);
+                    n += 1.0;
+                    sum += luma;
+                    sq += luma * luma;
+                }
+            }
+            if n == 0.0 {
+                return 0.0;
+            }
+            let mean = sum / n;
+            sq / n - mean * mean
+        })
     }
 
     /// Cheap content fingerprint (FNV-1a over a pixel sample).
-    pub fn fingerprint(&self) -> u64 {
-        let mut h: u64 = 0xcbf29ce484222325;
-        for b in self.bgra.iter().step_by(97) {
-            h ^= *b as u64;
-            h = h.wrapping_mul(0x100000001b3);
-        }
-        h
+    pub fn fingerprint(&self) -> Result<u64> {
+        let (width, height) = (self.width as usize, self.height as usize);
+        self.read_planes(|planes| {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for index in (0..width * height).step_by(97) {
+                let (luma, cb, cr) = planes.sample(index % width.max(1), index / width.max(1));
+                for byte in [luma, cb, cr] {
+                    h ^= u64::from(byte);
+                    h = h.wrapping_mul(0x100000001b3);
+                }
+            }
+            h
+        })
     }
 }
 

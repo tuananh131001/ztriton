@@ -21,6 +21,13 @@ smallvec = "1"
 url = "2"
 parking_lot = "0.12"
 futures = "0.3"
+# GPU video path: offscreen CGL context, GL bindings and IOSurface-backed
+# CVPixelBuffers (core-video must match the version gpui uses).
+cgl = "0.3"
+gl = "0.14"
+core-video = "0.4.3"
+core-foundation = "0.10"
+libc = "0.2"
 
 [profile.dev]
 opt-level = 1

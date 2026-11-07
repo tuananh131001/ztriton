@@ -85,7 +85,7 @@ fn jellyfin_stream_plays_through_libmpv() -> anyhow::Result<()> {
     assert!(f1 - f0 >= 30, "too few frames rendered");
 
     let frame = player.latest_frame().context("no frame rendered")?;
-    let var = frame.luma_variance();
+    let var = frame.luma_variance()?;
     say!("frame #{}: {}x{} luma variance {var:.1}", frame.seq, frame.width, frame.height);
     frame.save_png(&out.join("frame_test_start.png"))?;
 
@@ -99,11 +99,11 @@ fn jellyfin_stream_plays_through_libmpv() -> anyhow::Result<()> {
     let pos = player.status().position;
     say!("seek: target {target:.1}s -> time-pos {pos:.1}s");
     let frame2 = player.latest_frame().context("no frame after seek")?;
-    let var2 = frame2.luma_variance();
+    let var2 = frame2.luma_variance()?;
     say!("frame #{} after seek: luma variance {var2:.1}", frame2.seq);
     frame2.save_png(&out.join("frame_test_mid.png"))?;
     assert!(var.max(var2) > 50.0, "frames look blank");
-    assert_ne!(frame.fingerprint(), frame2.fingerprint(), "frames identical across seek");
+    assert_ne!(frame.fingerprint()?, frame2.fingerprint()?, "frames identical across seek");
 
     say!("--- mpv events ---");
     for e in player.events() { say!("{e}"); }
