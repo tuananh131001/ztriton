@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.4 — 2026-11-12
+
+- Playback resumes where it was left, even after short watches that Jellyfin would not record (under 5% of the runtime) or when quitting with ⌘Q. Positions are also kept on this Mac, and the newer of the local and server positions wins.
+- `make dmg` builds `dist/ztriton-<version>.dmg` for releases.
+
 ## 0.0.3 — 2026-11-07
 
 - Video now stays on the GPU: mpv decodes with VideoToolbox and renders through OpenGL into IOSurfaces that the UI draws with Metal. Playback CPU use drops from about 46% to about 19% of a core and memory from about 450 MB to about 280 MB (Apple M1, 1080p H.264), still at full frame rate.
