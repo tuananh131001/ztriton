@@ -2,6 +2,7 @@
 #
 #   make            build release binary
 #   make app        build dist/ztriton.app
+#   make dmg        build dist/ztriton-<version>.dmg (drag-to-Applications)
 #   make install    install to ~/Applications + `ztriton` CLI link
 #   make uninstall  remove app and CLI link (keeps Keychain login/device id)
 #   make bench      CPU/memory benchmark of the release build while playing
@@ -34,8 +35,10 @@ SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning | awk -F'"' '/
 
 TARGET_BIN := target/release/$(APP_NAME)
 BUNDLE     := dist/$(APP_NAME).app
+DMG        := dist/$(APP_NAME)-$(VERSION).dmg
+DMG_STAGING := dist/dmg-staging
 
-.PHONY: all build app install uninstall test bench check-deps clean
+.PHONY: all build app dmg install uninstall test bench check-deps clean
 
 all: build
 
@@ -75,6 +78,15 @@ app: build
 	fi
 	@plutil -lint "$(BUNDLE)/Contents/Info.plist" >/dev/null
 	@echo "built $(BUNDLE) (v$(VERSION))"
+
+dmg: app
+	@rm -rf "$(DMG_STAGING)" "$(DMG)"
+	@mkdir -p "$(DMG_STAGING)"
+	@cp -R "$(BUNDLE)" "$(DMG_STAGING)/"
+	@ln -s /Applications "$(DMG_STAGING)/Applications"
+	hdiutil create -volname "$(APP_NAME) $(VERSION)" -srcfolder "$(DMG_STAGING)" -ov -format UDZO "$(DMG)"
+	@rm -rf "$(DMG_STAGING)"
+	@echo "built $(DMG)"
 
 install: app
 	@mkdir -p "$(APP_DIR)" "$(BIN_DIR)" "$(CONFIG_DIR)"

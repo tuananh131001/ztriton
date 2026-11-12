@@ -1,3 +1,5 @@
+> [!IMPORTANT]
+> Remove this line to confirm you've reviewed this PR before submitting.
 # ztriton
 
 A native macOS Jellyfin client built with GPUI, with playback through libmpv.
