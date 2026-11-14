@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.5 — 2026-11-14
+
+- The app runs on macOS 13 Ventura and later without mpv installed: `make app` builds libmpv and its dependencies from source for macOS 13 and bundles them.
+- App icon.
+- `make vm-dmg` builds the DMG inside a Tart macOS VM.
+
 ## 0.0.4 — 2026-11-12
 
 - Playback resumes where it was left, even after short watches that Jellyfin would not record (under 5% of the runtime) or when quitting with ⌘Q. Positions are also kept on this Mac, and the newer of the local and server positions wins.
