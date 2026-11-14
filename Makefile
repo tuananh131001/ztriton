@@ -1,8 +1,13 @@
 # ztriton — build & install the macOS app bundle.
 #
 #   make            build release binary
-#   make app        build dist/ztriton.app
+#   make app        build dist/ztriton.app for macOS 13+: libmpv and its
+#                   dependencies are built from source for macOS 13
+#                   (scripts/build-libmpv.sh, into target/libmpv) and bundled
+#                   in Contents/Frameworks, so users need no mpv
 #   make dmg        build dist/ztriton-<version>.dmg (drag-to-Applications)
+#   make vm-dmg     build the dmg inside a Tart macOS VM (VM=ztriton-build,
+#                   cloned from BASE=tahoe-xcode) and copy it to dist/
 #   make install    install to ~/Applications + `ztriton` CLI link
 #   make uninstall  remove app and CLI link (keeps Keychain login/device id)
 #   make bench      CPU/memory benchmark of the release build while playing
@@ -33,12 +38,17 @@ CONFIG_DIR ?= $(HOME)/Library/Application Support/ztriton
 
 SIGN_IDENTITY ?= $(shell security find-identity -v -p codesigning | awk -F'"' '/"Apple Development: /{print $$2; exit}')
 
+MACOS_MIN  := 13.0
+MPV_PREFIX := $(CURDIR)/target/libmpv
+MPV_BUILT  := $(MPV_PREFIX)/.built-mpv
+ICNS       := target/$(APP_NAME).icns
+
 TARGET_BIN := target/release/$(APP_NAME)
 BUNDLE     := dist/$(APP_NAME).app
 DMG        := dist/$(APP_NAME)-$(VERSION).dmg
 DMG_STAGING := dist/dmg-staging
 
-.PHONY: all build app dmg install uninstall test bench check-deps clean
+.PHONY: all build app-binary app dmg vm-dmg install uninstall test bench check-deps clean
 
 all: build
 
@@ -50,10 +60,24 @@ check-deps:
 build: check-deps
 	cargo build --release
 
-app: build
+# Homebrew bottles only run on the macOS they were built for, so the bundle
+# links against a libmpv built for MACOS_MIN instead.
+$(MPV_BUILT): scripts/build-libmpv.sh
+	rm -rf "$(MPV_PREFIX)"
+	MACOS_MIN=$(MACOS_MIN) scripts/build-libmpv.sh "$(MPV_PREFIX)"
+
+app-binary: $(MPV_BUILT)
+	@command -v cargo >/dev/null || { echo "error: cargo not found (mise install / rustup)"; exit 1; }
+	MPV_LIB_DIR="$(MPV_PREFIX)/lib" MACOSX_DEPLOYMENT_TARGET=$(MACOS_MIN) cargo build --release
+
+$(ICNS): resources/ztriton-icon.svg scripts/make-icns.sh
+	scripts/make-icns.sh resources/ztriton-icon.svg "$(ICNS)"
+
+app: app-binary $(ICNS)
 	@rm -rf "$(BUNDLE)"
 	@mkdir -p "$(BUNDLE)/Contents/MacOS" "$(BUNDLE)/Contents/Resources"
 	@cp "$(TARGET_BIN)" "$(BUNDLE)/Contents/MacOS/$(APP_NAME)"
+	@cp "$(ICNS)" "$(BUNDLE)/Contents/Resources/$(APP_NAME).icns"
 	@printf '%s\n' \
 	  '<?xml version="1.0" encoding="UTF-8"?>' \
 	  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
@@ -62,19 +86,25 @@ app: build
 	  '  <key>CFBundleDisplayName</key><string>ztriton</string>' \
 	  '  <key>CFBundleIdentifier</key><string>$(BUNDLE_ID)</string>' \
 	  '  <key>CFBundleExecutable</key><string>$(APP_NAME)</string>' \
+	  '  <key>CFBundleIconFile</key><string>$(APP_NAME)</string>' \
 	  '  <key>CFBundlePackageType</key><string>APPL</string>' \
 	  '  <key>CFBundleVersion</key><string>$(VERSION)</string>' \
 	  '  <key>CFBundleShortVersionString</key><string>$(VERSION)</string>' \
-	  '  <key>LSMinimumSystemVersion</key><string>13.0</string>' \
+	  '  <key>LSMinimumSystemVersion</key><string>$(MACOS_MIN)</string>' \
 	  '  <key>LSApplicationCategoryType</key><string>public.app-category.entertainment</string>' \
 	  '  <key>NSHighResolutionCapable</key><true/>' \
 	  '  <key>NSLocalNetworkUsageDescription</key><string>ztriton streams video from your Jellyfin server.</string>' \
 	  '</dict></plist>' > "$(BUNDLE)/Contents/Info.plist"
+	@scripts/bundle-dylibs.sh "$(BUNDLE)/Contents/MacOS/$(APP_NAME)"
+	@minimum=$$(plutil -extract LSMinimumSystemVersion raw "$(BUNDLE)/Contents/Info.plist"); \
+		[ "$$minimum" = "$(MACOS_MIN)" ] || { echo "error: a bundled binary needs macOS $$minimum, not $(MACOS_MIN)"; exit 1; }
 	@if [ -n "$(SIGN_IDENTITY)" ]; then \
-		codesign --force --sign "$(SIGN_IDENTITY)" --identifier $(BUNDLE_ID) "$(BUNDLE)" && echo "signed with $(SIGN_IDENTITY)"; \
+		codesign --force --sign "$(SIGN_IDENTITY)" "$(BUNDLE)"/Contents/Frameworks/*.dylib >/dev/null \
+			&& codesign --force --sign "$(SIGN_IDENTITY)" --identifier $(BUNDLE_ID) "$(BUNDLE)" && echo "signed with $(SIGN_IDENTITY)"; \
 	else \
-		codesign --force --sign - "$(BUNDLE)" >/dev/null 2>&1 && echo "ad-hoc signed (add an Apple Development identity to stop Keychain prompts after rebuilds)" \
-			|| echo "warning: codesign failed (app still runs locally)"; \
+		codesign --force --sign - "$(BUNDLE)"/Contents/Frameworks/*.dylib >/dev/null 2>&1 \
+			&& codesign --force --sign - "$(BUNDLE)" >/dev/null 2>&1 && echo "ad-hoc signed (add an Apple Development identity to stop Keychain prompts after rebuilds)" \
+			|| { echo "error: codesign failed (arm64 code with broken signatures will not load)"; exit 1; }; \
 	fi
 	@plutil -lint "$(BUNDLE)/Contents/Info.plist" >/dev/null
 	@echo "built $(BUNDLE) (v$(VERSION))"
@@ -87,6 +117,9 @@ dmg: app
 	hdiutil create -volname "$(APP_NAME) $(VERSION)" -srcfolder "$(DMG_STAGING)" -ov -format UDZO "$(DMG)"
 	@rm -rf "$(DMG_STAGING)"
 	@echo "built $(DMG)"
+
+vm-dmg:
+	scripts/vm-dmg.sh
 
 install: app
 	@mkdir -p "$(APP_DIR)" "$(BIN_DIR)" "$(CONFIG_DIR)"

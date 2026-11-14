@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The artwork fills 824x824 of the 1024 canvas, as macOS app icons do. -->
+  <defs>
+    <clipPath id="squircle"><rect x="0" y="0" width="1024" height="1024" rx="228"/></clipPath>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".14"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="longShadow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#000" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(100 100) scale(0.8046875)">
+    <g clip-path="url(#squircle)">
+      <rect width="1024" height="1024" fill="#5e35b1"/>
+      <path d="M0 0 H1024 L0 1024 Z" fill="#7e57c2"/>
+      <path d="M300 280 L1024 1004 V1024 H740 L300 584 Z" fill="url(#longShadow)"/>
+      <path d="M280 260 H744 V350 L430 674 H744 V764 H280 V674 L594 350 H280 Z" fill="#ede7f6"/>
+      <path d="M640 456 L780 540 L640 624 Z" fill="#ff7043" stroke="#ff7043" stroke-width="24" stroke-linejoin="round"/>
+      <rect width="1024" height="1024" fill="url(#sheen)"/>
+    </g>
+  </g>
+</svg>

@@ -12,7 +12,7 @@
 use anyhow::{Result, anyhow, bail};
 use cgl::{
     CGLChoosePixelFormat, CGLContextObj, CGLCreateContext, CGLDestroyContext, CGLError, CGLErrorString,
-    CGLPixelFormatAttribute, CGLReleasePixelFormat, CGLSetCurrentContext, CGLTexImageIOSurface2D,
+    CGLPixelFormatAttribute, CGLPixelFormatObj, CGLReleasePixelFormat, CGLSetCurrentContext, CGLTexImageIOSurface2D,
     kCGLPFAAccelerated, kCGLPFAAllowOfflineRenderers, kCGLPFAOpenGLProfile,
 };
 use core_foundation::base::{CFType, TCFType};
@@ -88,6 +88,27 @@ pub unsafe extern "C" fn mpv_get_proc_address(_context: *mut c_void, name: *cons
     proc_address(unsafe { CStr::from_ptr(name) })
 }
 
+/// An OpenGL 3.2 core pixel format, released by the caller with `CGLReleasePixelFormat`.
+#[expect(unsafe_code, reason = "calls CGLChoosePixelFormat")]
+fn choose_pixel_format(accelerated: bool) -> Result<CGLPixelFormatObj> {
+    let mut attributes = vec![kCGLPFAOpenGLProfile, OPENGL_3_2_CORE];
+    if accelerated {
+        attributes.push(kCGLPFAAccelerated);
+    }
+    attributes.extend([kCGLPFAAllowOfflineRenderers, 0]);
+    let mut pixel_format = std::ptr::null_mut();
+    let mut count: GLint = 0;
+    // SAFETY: `attributes` is 0-terminated and both out-pointers are valid.
+    cgl_check(
+        unsafe { CGLChoosePixelFormat(attributes.as_ptr(), &mut pixel_format, &mut count) },
+        "CGLChoosePixelFormat",
+    )?;
+    if pixel_format.is_null() {
+        bail!("no OpenGL 3.2 pixel format (accelerated: {accelerated})");
+    }
+    Ok(pixel_format)
+}
+
 /// An offscreen OpenGL 3.2 core context, current on the creating thread.
 pub struct GlContext(CGLContextObj);
 
@@ -95,23 +116,15 @@ impl GlContext {
     /// Create the context, make it current on this thread and load GL entry points.
     #[expect(unsafe_code, reason = "creates a CGL context")]
     pub fn new_current() -> Result<Self> {
-        let attributes = [
-            kCGLPFAOpenGLProfile,
-            OPENGL_3_2_CORE,
-            kCGLPFAAccelerated,
-            kCGLPFAAllowOfflineRenderers,
-            0,
-        ];
-        let mut pixel_format = std::ptr::null_mut();
-        let mut count: GLint = 0;
-        // SAFETY: `attributes` is 0-terminated and both out-pointers are valid.
-        cgl_check(
-            unsafe { CGLChoosePixelFormat(attributes.as_ptr(), &mut pixel_format, &mut count) },
-            "CGLChoosePixelFormat",
-        )?;
-        if pixel_format.is_null() {
-            bail!("no accelerated OpenGL 3.2 pixel format");
-        }
+        let pixel_format = match choose_pixel_format(true) {
+            Ok(pixel_format) => pixel_format,
+            // macOS virtual machines expose Metal but no accelerated OpenGL
+            // renderer; Apple's software renderer still plays video there.
+            Err(error) => {
+                log::warn!("no accelerated OpenGL renderer ({error:#}), using the software renderer");
+                choose_pixel_format(false)?
+            }
+        };
         let mut context = std::ptr::null_mut();
         // SAFETY: `pixel_format` is valid; the context keeps its own reference to it,
         // so ours is released right after.
