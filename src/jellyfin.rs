@@ -103,6 +103,9 @@ pub struct Item {
     /// Series name, for episodes.
     pub series_name: Option<String>,
     #[serde(default)]
+    /// Series id, for episodes.
+    pub series_id: Option<String>,
+    #[serde(default)]
     /// Season number, for episodes.
     pub parent_index_number: Option<i32>,
     #[serde(default)]
@@ -403,6 +406,17 @@ impl Jellyfin {
         Ok(r.items)
     }
 
+    /// Every episode of a series, in season and episode order.
+    pub fn episodes(&self, series_id: &str) -> Result<Vec<Item>> {
+        let r: ItemsResponse = self.get_json(&format!(
+            "/Shows/{}/Episodes?userId={}&Fields={}",
+            enc(series_id),
+            self.user_id,
+            Self::FIELDS
+        ))?;
+        Ok(r.items)
+    }
+
     /// One item by id.
     pub fn item(&self, id: &str) -> Result<Item> {
         self.get_json(&format!("/Items/{}?userId={}", enc(id), self.user_id))
@@ -544,4 +558,42 @@ pub fn redact(url: &str) -> String {
         })
         .collect();
     format!("{base}?{}", q.join("&"))
+}
+
+/// The episodes before and after `current_id` in `episodes`.
+pub fn adjacent_episodes(episodes: &[Item], current_id: &str) -> (Option<Item>, Option<Item>) {
+    let Some(index) = episodes.iter().position(|episode| episode.id == current_id) else {
+        return (None, None);
+    };
+    let previous = index.checked_sub(1).and_then(|previous| episodes.get(previous)).cloned();
+    let next = episodes.get(index + 1).cloned();
+    (previous, next)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn episodes(ids: &[&str]) -> Vec<Item> {
+        ids.iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({ "Id": id, "Name": id, "Type": "Episode" }))
+                    .expect("valid item json")
+            })
+            .collect()
+    }
+
+    fn ids(adjacent: (Option<Item>, Option<Item>)) -> (Option<String>, Option<String>) {
+        (adjacent.0.map(|item| item.id), adjacent.1.map(|item| item.id))
+    }
+
+    #[test]
+    fn finds_adjacent_episodes() {
+        let series = episodes(&["e1", "e2", "e3"]);
+        assert_eq!(ids(adjacent_episodes(&series, "e1")), (None, Some("e2".into())));
+        assert_eq!(ids(adjacent_episodes(&series, "e2")), (Some("e1".into()), Some("e3".into())));
+        assert_eq!(ids(adjacent_episodes(&series, "e3")), (Some("e2".into()), None));
+        assert_eq!(ids(adjacent_episodes(&series, "missing")), (None, None));
+        assert_eq!(ids(adjacent_episodes(&[], "e1")), (None, None));
+    }
 }

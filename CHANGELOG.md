@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Previous / next episode in the player: ⏮ ⏭ buttons beside the seek controls, or `p` / `n`. The episode being left reports its stop and keeps its resume position; Esc then returns to the new episode's page.
+
 ## 0.0.5 — 2026-11-14
 
 - The app runs on macOS 13 Ventura and later without mpv installed: `make app` builds libmpv and its dependencies from source for macOS 13 and bundles them.

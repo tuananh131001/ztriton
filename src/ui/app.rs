@@ -392,6 +392,22 @@ impl ZtritonApp {
         log::info!("playing '{}' ({}) from {start:.2}s", item.name, item.id);
         let item_id = item.id.clone();
         let view = cx.new(|cx| PlayerView::new(jf, item, start, window, cx));
+        cx.subscribe_in(&view, window, {
+            let item_id = item_id.clone();
+            move |this, _, super::player_view::PlayEpisode(episode), window, cx| {
+                if matches!(this.stack.last(), Some(Screen::Player(_))) {
+                    drop(this.stack.pop());
+                }
+                // Esc after switching returns to the episode last played, not the one first opened.
+                if matches!(this.stack.last(), Some(Screen::Detail { item, .. }) if item.id == item_id) {
+                    drop(this.stack.pop());
+                    this.push_detail(episode.clone());
+                }
+                let start = this.start_position(episode);
+                this.play(episode.clone(), start, window, cx);
+            }
+        })
+        .detach();
         cx.subscribe_in(&view, window, move |this, _, _: &super::player_view::Closed, window, cx| {
             if matches!(this.stack.last(), Some(Screen::Player(_))) {
                 this.pop(cx);
