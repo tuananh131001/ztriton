@@ -9,13 +9,13 @@ use gpui::{
     linear_color_stop, linear_gradient, prelude::*, px, rgba,
 };
 use std::time::{Duration, Instant};
-use ztriton::jellyfin::{Item, Jellyfin, redact};
+use ztriton::jellyfin::{Item, Jellyfin, adjacent_episodes, redact};
 use ztriton::player::{ExternalSubtitle, Player, PlayerOptions, Status, SubtitlePreference, VideoFrame};
 use ztriton::preferences::Preferences;
 
 actions!(
     player,
-    [TogglePause, SeekForward, SeekBack, SeekForwardBig, SeekBackBig, VolumeUp, VolumeDown, CycleAudio, CycleSubs, ClosePlayer, Fullscreen, ToggleMute]
+    [TogglePause, SeekForward, SeekBack, SeekForwardBig, SeekBackBig, VolumeUp, VolumeDown, CycleAudio, CycleSubs, ClosePlayer, Fullscreen, ToggleMute, PreviousEpisode, NextEpisode]
 );
 
 pub fn bind_keys(cx: &mut App) {
@@ -33,10 +33,15 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", ClosePlayer, ctx),
         KeyBinding::new("f", Fullscreen, ctx),
         KeyBinding::new("m", ToggleMute, ctx),
+        KeyBinding::new("p", PreviousEpisode, ctx),
+        KeyBinding::new("n", NextEpisode, ctx),
     ]);
 }
 
 pub struct Closed;
+
+/// Playback of this item stopped so `.0` can be played instead.
+pub struct PlayEpisode(pub Item);
 
 pub struct PlayerView {
     player: Option<Player>,
@@ -52,6 +57,8 @@ pub struct PlayerView {
     error: Option<String>,
     osd: Option<(String, Instant)>,
     subtitle_menu_open: bool,
+    previous_episode: Option<Item>,
+    next_episode: Option<Item>,
     // Stats (shown in proof mode / logged)
     presented: u64,
     presented_window: (Instant, u64),
@@ -61,6 +68,7 @@ pub struct PlayerView {
 }
 
 impl EventEmitter<Closed> for PlayerView {}
+impl EventEmitter<PlayEpisode> for PlayerView {}
 
 const BAR_MARGIN: f32 = 40.;
 
@@ -81,6 +89,8 @@ impl PlayerView {
             error: None,
             osd: None,
             subtitle_menu_open: false,
+            previous_episode: None,
+            next_episode: None,
             presented: 0,
             presented_window: (Instant::now(), 0),
             presented_fps: 0.0,
@@ -141,6 +151,12 @@ impl PlayerView {
                     }
                 })
                 .detach();
+
+                if item.kind == "Episode"
+                    && let Some(series_id) = item.series_id.clone()
+                {
+                    Self::load_adjacent_episodes(jf.clone(), series_id, item.id.clone(), cx);
+                }
 
                 // Jellyfin playback reporting.
                 let jf2 = jf.clone();
@@ -235,6 +251,58 @@ impl PlayerView {
             self.error = Some(format!("{e:#}"));
             cx.notify();
         }
+    }
+
+    fn load_adjacent_episodes(jf: Jellyfin, series_id: String, item_id: String, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let episodes = cx.background_executor().spawn(async move { jf.episodes(&series_id) }).await;
+            let episodes = match episodes {
+                Ok(episodes) => episodes,
+                Err(e) => {
+                    log::warn!("could not load the series' episodes: {e:#}");
+                    return;
+                }
+            };
+            this.update(cx, |view, cx| {
+                (view.previous_episode, view.next_episode) = adjacent_episodes(&episodes, &item_id);
+                let describe = |episode: &Option<Item>| {
+                    episode.as_ref().map_or_else(|| "none".to_string(), |e| format!("'{}' {} ({})", e.name, e.subtitle(), e.id))
+                };
+                proof_log(format!(
+                    "episodes: {} in series, previous={}, next={}",
+                    episodes.len(),
+                    describe(&view.previous_episode),
+                    describe(&view.next_episode)
+                ));
+                cx.notify();
+            })
+            .log_err();
+        })
+        .detach();
+    }
+
+    fn go_to_episode(&mut self, episode: Option<Item>, missing: &str, cx: &mut Context<Self>) {
+        let Some(episode) = episode else {
+            proof_log(format!("episodes: {missing}"));
+            self.flash(missing, cx);
+            return;
+        };
+        if self.closed {
+            return;
+        }
+        self.closed = true;
+        if let Some(t) = self.shutdown(cx) {
+            t.detach();
+        }
+        self.frame = None;
+        proof_log(format!(
+            "episodes: switching from '{}' {} to '{}' {}",
+            self.item.name,
+            self.item.subtitle(),
+            episode.name,
+            episode.subtitle()
+        ));
+        cx.emit(PlayEpisode(episode));
     }
 
     fn select_subtitle(&mut self, id: Option<i64>, cx: &mut Context<Self>) {
@@ -518,6 +586,12 @@ impl PlayerView {
             if was { format!("Volume {}", p.volume()) } else { "Muted".into() }
         });
     }
+    fn previous_episode(&mut self, _: &PreviousEpisode, _: &mut Window, cx: &mut Context<Self>) {
+        self.go_to_episode(self.previous_episode.clone(), "No previous episode", cx);
+    }
+    fn next_episode(&mut self, _: &NextEpisode, _: &mut Window, cx: &mut Context<Self>) {
+        self.go_to_episode(self.next_episode.clone(), "No next episode", cx);
+    }
     fn fullscreen(&mut self, _: &Fullscreen, window: &mut Window, _: &mut Context<Self>) {
         window.toggle_fullscreen();
     }
@@ -708,6 +782,11 @@ impl PlayerView {
                                     .flex()
                                     .items_center()
                                     .gap_4()
+                                    .when(self.previous_episode.is_some(), |d| {
+                                        d.child(btn("previous-episode", "⏮").on_click(
+                                            cx.listener(|this, _, w, cx| this.previous_episode(&PreviousEpisode, w, cx)),
+                                        ))
+                                    })
                                     .child(btn("back10", "↺").on_click(cx.listener(|this, _, w, cx| this.seek_back(&SeekBack, w, cx))))
                                     .child(
                                         btn("playpause", if st.paused { "▶" } else { "❚❚" })
@@ -715,7 +794,12 @@ impl PlayerView {
                                             .bg(rgba(0xffffff26))
                                             .on_click(cx.listener(|this, _, w, cx| this.toggle_pause(&TogglePause, w, cx))),
                                     )
-                                    .child(btn("fwd10", "↻").on_click(cx.listener(|this, _, w, cx| this.seek_fwd(&SeekForward, w, cx)))),
+                                    .child(btn("fwd10", "↻").on_click(cx.listener(|this, _, w, cx| this.seek_fwd(&SeekForward, w, cx))))
+                                    .when(self.next_episode.is_some(), |d| {
+                                        d.child(btn("next-episode", "⏭").on_click(
+                                            cx.listener(|this, _, w, cx| this.next_episode(&NextEpisode, w, cx)),
+                                        ))
+                                    }),
                             )
                             .child(div().w(px(160.)).flex().justify_end().text_sm().text_color(text_dim()).child(format!("−{}", fmt_time(remaining)))),
                     )
@@ -862,6 +946,8 @@ impl Render for PlayerView {
             .on_action(cx.listener(Self::on_close))
             .on_action(cx.listener(Self::fullscreen))
             .on_action(cx.listener(Self::toggle_mute))
+            .on_action(cx.listener(Self::previous_episode))
+            .on_action(cx.listener(Self::next_episode))
             .on_mouse_move(cx.listener(|this, _, _, cx| {
                 this.last_activity = Instant::now();
                 cx.notify();
