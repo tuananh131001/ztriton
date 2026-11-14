@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.6 — 2026-11-15
 
 - Previous / next episode in the player: ⏮ ⏭ buttons beside the seek controls, or `p` / `n`. The episode being left reports its stop and keeps its resume position; Esc then returns to the new episode's page.
 
