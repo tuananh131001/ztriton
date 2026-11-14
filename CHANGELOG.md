@@ -4,6 +4,7 @@
 
 - The app runs on macOS 13 Ventura and later without mpv installed: `make app` builds libmpv and its dependencies from source for macOS 13 and bundles them.
 - App icon.
+- Video plays on Macs without an accelerated OpenGL renderer, such as macOS virtual machines, through Apple's software renderer instead of failing with “CGLChoosePixelFormat failed”.
 - `make vm-dmg` builds the DMG inside a Tart macOS VM.
 
 ## 0.0.4 — 2026-11-12
