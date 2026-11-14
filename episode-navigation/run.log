@@ -1,0 +1,78 @@
+[1794674642.882] start: ztriton 0.0.5 | rustc target aarch64 | libmpv client API 2.6 | autoplay=Some("S01E02")
+[1794674756.044] auth: restored session from Keychain (service=dev.ztriton.player)
+[1794674756.105] home: logged in to http://192.168.64.1:8096 as user 6c3c7b0fb90549158052ee655b38c837; 2 libraries, shelves: Recently Added in Shows (1)
+[1794674760.363] autoplay: opening detail for 'Proof Show - S01E02' (ef1aee9925188143ab248cddf52f6a99)
+[1794674764.695] player: libmpv mpv v0.42.0 | loading 'Proof Show - S01E02' from http://192.168.64.1:8096/Videos/ef1aee9925188143ab248cddf52f6a99/stream?static=true (start 0.0s)
+[1794674764.731] episodes: 3 in series, previous='Proof Show - S01E01' Proof Show · S1E1 (04feaed99e7f9d035a16c6af77999bf3), next='Proof Show - S01E03' Proof Show · S1E3 (d93ab5bfe5d58ed6ff1069e1c24e67e7)
+[1794674764.739] player: 0 external subtitle(s), remembered choice None
+[1794674765.910] player: first frame presented via GPUI surface (1280x720)
+[1794674772.864] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 72) at time-pos 7.96s -> /Users/admin/ztriton/proof/playback/gpui_frame_1.png
+[1794674772.865] proof: marker playing-1
+[1794674775.217] resume: saved 'Proof Show - S01E02' at 10.29s of 120.0s
+[1794674776.928] proof: server /Sessions -> client="ztriton" device="macOS" NowPlayingItem="Proof Show - S01E02" PositionTicks=112916666
+[1794674780.007] proof: seeking to 60% = 72.0s
+[1794674785.784] resume: saved 'Proof Show - S01E02' at 77.62s of 120.0s
+[1794674786.408] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 229) at time-pos 78.21s -> /Users/admin/ztriton/proof/playback/gpui_frame_2.png
+[1794674786.409] proof: marker playing-2
+[1794674788.466] proof: marker paused-overlay
+[1794674795.757] proof: done
+[1794674796.159] resume: saved 'Proof Show - S01E02' at 81.67s of 120.0s
+[1794674806.675] resume: saved 'Proof Show - S01E02' at 92.17s of 120.0s
+[1794674812.466] resume: saved 'Proof Show - S01E02' at 98.00s of 120.0s
+[1794674812.467] player: closing at 98.00s, reporting stop to Jellyfin
+[1794674812.468] episodes: switching from 'Proof Show - S01E02' Proof Show · S1E2 to 'Proof Show - S01E03' Proof Show · S1E3
+[1794674812.476] player: libmpv mpv v0.42.0 | loading 'Proof Show - S01E03' from http://192.168.64.1:8096/Videos/d93ab5bfe5d58ed6ff1069e1c24e67e7/stream?static=true (start 0.0s)
+[1794674812.486] episodes: 3 in series, previous='Proof Show - S01E02' Proof Show · S1E2 (ef1aee9925188143ab248cddf52f6a99), next=none
+[1794674812.487] player: 0 external subtitle(s), remembered choice None
+[1794674813.475] player: first frame presented via GPUI surface (1280x720)
+[1794674820.954] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 78) at time-pos 8.42s -> /Users/admin/ztriton/proof/playback/gpui_frame_1.png
+[1794674820.955] proof: marker playing-1
+[1794674823.057] resume: saved 'Proof Show - S01E03' at 10.46s of 120.0s
+[1794674825.161] proof: server /Sessions -> client="ztriton" device="macOS" NowPlayingItem="Proof Show - S01E03" PositionTicks=124583333
+[1794674828.332] proof: seeking to 60% = 72.0s
+[1794674833.639] resume: saved 'Proof Show - S01E03' at 77.08s of 120.0s
+[1794674834.686] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 237) at time-pos 78.12s -> /Users/admin/ztriton/proof/playback/gpui_frame_2.png
+[1794674834.686] proof: marker playing-2
+[1794674836.722] proof: marker paused-overlay
+[1794674843.951] proof: done
+[1794674844.059] resume: saved 'Proof Show - S01E03' at 81.46s of 120.0s
+[1794674844.588] episodes: No next episode
+[1794674854.517] resume: saved 'Proof Show - S01E03' at 91.88s of 120.0s
+[1794674856.790] resume: saved 'Proof Show - S01E03' at 94.21s of 120.0s
+[1794674856.792] player: closing at 94.21s, reporting stop to Jellyfin
+[1794674856.792] episodes: switching from 'Proof Show - S01E03' Proof Show · S1E3 to 'Proof Show - S01E02' Proof Show · S1E2
+[1794674856.800] player: libmpv mpv v0.42.0 | loading 'Proof Show - S01E02' from http://192.168.64.1:8096/Videos/ef1aee9925188143ab248cddf52f6a99/stream?static=true (start 98.0s)
+[1794674856.810] player: 0 external subtitle(s), remembered choice None
+[1794674856.811] episodes: 3 in series, previous='Proof Show - S01E01' Proof Show · S1E1 (04feaed99e7f9d035a16c6af77999bf3), next='Proof Show - S01E03' Proof Show · S1E3 (d93ab5bfe5d58ed6ff1069e1c24e67e7)
+[1794674857.742] player: first frame presented via GPUI surface (1280x720)
+[1794674864.926] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 72) at time-pos 105.96s -> /Users/admin/ztriton/proof/playback/gpui_frame_1.png
+[1794674864.927] proof: marker playing-1
+[1794674867.389] resume: saved 'Proof Show - S01E02' at 108.42s of 120.0s
+[1794674868.973] proof: server /Sessions -> client="ztriton" device="macOS" NowPlayingItem="Proof Show - S01E02" PositionTicks=1094166666
+[1794674872.054] proof: seeking to 60% = 72.0s
+[1794674877.889] resume: saved 'Proof Show - S01E02' at 77.58s of 120.0s
+[1794674878.434] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 225) at time-pos 78.08s -> /Users/admin/ztriton/proof/playback/gpui_frame_2.png
+[1794674878.434] proof: marker playing-2
+[1794674880.475] proof: marker paused-overlay
+[1794674887.638] proof: done
+[1794674888.336] resume: saved 'Proof Show - S01E02' at 81.92s of 120.0s
+[1794674898.775] resume: saved 'Proof Show - S01E02' at 92.38s of 120.0s
+[1794674898.776] player: closing at 92.38s, reporting stop to Jellyfin
+[1794674898.777] episodes: switching from 'Proof Show - S01E02' Proof Show · S1E2 to 'Proof Show - S01E01' Proof Show · S1E1
+[1794674898.785] player: libmpv mpv v0.42.0 | loading 'Proof Show - S01E01' from http://192.168.64.1:8096/Videos/04feaed99e7f9d035a16c6af77999bf3/stream?static=true (start 0.0s)
+[1794674898.790] player: 0 external subtitle(s), remembered choice None
+[1794674898.791] episodes: 3 in series, previous=none, next='Proof Show - S01E02' Proof Show · S1E2 (ef1aee9925188143ab248cddf52f6a99)
+[1794674899.650] player: first frame presented via GPUI surface (1280x720)
+[1794674907.068] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 75) at time-pos 8.17s -> /Users/admin/ztriton/proof/playback/gpui_frame_1.png
+[1794674907.069] proof: marker playing-1
+[1794674909.335] resume: saved 'Proof Show - S01E01' at 10.46s of 120.0s
+[1794674911.108] proof: server /Sessions -> client="ztriton" device="macOS" NowPlayingItem="Proof Show - S01E01" PositionTicks=114583333
+[1794674914.188] proof: seeking to 60% = 72.0s
+[1794674919.910] resume: saved 'Proof Show - S01E01' at 77.54s of 120.0s
+[1794674920.246] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 225) at time-pos 77.88s -> /Users/admin/ztriton/proof/playback/gpui_frame_2.png
+[1794674920.247] proof: marker playing-2
+[1794674922.271] proof: marker paused-overlay
+[1794674929.356] proof: done
+[1794674930.275] resume: saved 'Proof Show - S01E01' at 81.92s of 120.0s
+[1794674937.809] resume: saved 'Proof Show - S01E01' at 89.42s of 120.0s
+[1794674937.810] player: closing at 89.42s, reporting stop to Jellyfin

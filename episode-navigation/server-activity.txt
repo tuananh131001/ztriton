@@ -1,0 +1,8 @@
+2026-11-14T16:46:04 proof is playing Proof Show - Proof Show - S01E02 on macOS
+2026-11-14T16:46:52 proof has finished playing Proof Show - Proof Show - S01E02 on macOS
+2026-11-14T16:46:52 proof is playing Proof Show - Proof Show - S01E03 on macOS
+2026-11-14T16:47:36 proof has finished playing Proof Show - Proof Show - S01E03 on macOS
+2026-11-14T16:47:36 proof is playing Proof Show - Proof Show - S01E02 on macOS
+2026-11-14T16:48:18 proof has finished playing Proof Show - Proof Show - S01E02 on macOS
+2026-11-14T16:48:18 proof is playing Proof Show - Proof Show - S01E01 on macOS
+2026-11-14T16:48:57 proof has finished playing Proof Show - Proof Show - S01E01 on macOS
