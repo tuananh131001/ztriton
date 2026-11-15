@@ -102,6 +102,31 @@ impl<T, E: std::fmt::Debug> LogErr for Result<T, E> {
     }
 }
 
+/// Magnifying-glass icon `size` points square, drawn in the current text colour.
+pub fn magnifier_icon(size: f32) -> impl gpui::IntoElement {
+    use gpui::{PathBuilder, Styled, canvas, point, px};
+    canvas(
+        |_, _, _| {},
+        |bounds, (), window, _| {
+            // Coordinates on a 16-unit grid scaled to the element's bounds.
+            let unit = bounds.size.width / 16.;
+            let at = |x: f32, y: f32| point(bounds.origin.x + unit * x, bounds.origin.y + unit * y);
+            let mut path = PathBuilder::stroke(unit * 1.75);
+            path.move_to(at(11.5, 6.5));
+            path.arc_to(point(unit * 5., unit * 5.), px(0.), false, true, at(1.5, 6.5));
+            path.arc_to(point(unit * 5., unit * 5.), px(0.), false, true, at(11.5, 6.5));
+            path.move_to(at(10.2, 10.2));
+            path.line_to(at(14.5, 14.5));
+            match path.build() {
+                Ok(path) => window.paint_path(path, window.text_style().color),
+                Err(e) => log::warn!("could not draw the search icon: {e:?}"),
+            }
+        },
+    )
+    .size(px(size))
+    .flex_none()
+}
+
 /// Top-right control that toggles native fullscreen (also bound to ctrl-cmd-f).
 pub fn fullscreen_button(id: &'static str, is_fullscreen: bool) -> gpui::Stateful<gpui::Div> {
     use gpui::{InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, div};
