@@ -1,0 +1,34 @@
+== released v0.0.7 (before): release-0.0.7-rust199.dmg
+75394255c29c47dc38b8976495d3bb885e1231d56b1c7ec0360d8a70f145d167
+embedded rustc commit(s):
+ 219 /rustc/58cf8f9c35b355199727627d07ae34a4e2846d67
+  "CFBundleShortVersionString" => "0.0.7"
+  "LSMinimumSystemVersion" => "13.0"
+codesign: valid
+== this branch (after): ztriton-0.0.7.dmg
+5fa8eb7abf5f47895c81cae3b962d869bd2f86fc4e84a2cedea143b16edd2fd5
+embedded rustc commit(s):
+ 206 /rustc/0ef1bc386059596dada8fb65b50425aab2ea637a
+  "CFBundleShortVersionString" => "0.0.7"
+  "LSMinimumSystemVersion" => "13.0"
+codesign: valid
+== rustup reference
+1.99.1  -> commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67
+1.100.0 -> commit-hash: 0ef1bc386059596dada8fb65b50425aab2ea637a
+== Mach-O minos of every binary in the new app
+ztriton                                  13.0
+libass.9.dylib                           13.0
+libavcodec.63.dylib                      13.0
+libavdevice.63.dylib                     13.0
+libavfilter.12.dylib                     13.0
+libavformat.63.dylib                     13.0
+libavutil.61.dylib                       13.0
+libdav1d.7.dylib                         13.0
+libfreetype.6.dylib                      13.0
+libfribidi.0.dylib                       13.0
+libharfbuzz.0.dylib                      13.0
+libluajit-5.1.2.dylib                    13.0
+libmpv.2.dylib                           13.0
+libplacebo.387.dylib                     13.0
+libswresample.7.dylib                    13.0
+libswscale.10.dylib                      13.0

@@ -1,0 +1,14 @@
+== Jellyfin /Devices (proof server, ztriton clients)
+ztriton 0.0.7 ztriton-rust100-proof 2026-11-15T06:08:56.4652447Z
+ztriton 0.0.7 ztriton-e2e-test 2026-11-15T06:04:27.410379Z
+ztriton 0.0.6 ztriton-search-proof 2026-11-15T04:21:04.5535305Z
+ztriton 0.0.5 ztriton-episodes-proof 2026-11-14T16:48:57.8200025Z
+ztriton 0.0.5 ztriton-ventura-proof 2026-11-14T10:38:59.4182883Z
+ztriton 0.0.4 ztriton-host-sanity 2026-11-14T07:47:48.4373426Z
+== activity log (latest 6)
+2026-11-15T06:10:33.9383671Z proof successfully authenticated
+2026-11-15T06:10:33.9381342Z proof is online from host
+2026-11-15T06:10:12.2580122Z proof has finished playing Ventura Proof (2026) on macOS
+2026-11-15T06:09:54.0440288Z proof is playing Ventura Proof (2026) on macOS
+2026-11-15T06:08:56.466477Z proof successfully authenticated
+2026-11-15T06:08:56.4660388Z proof is online from macOS

@@ -1,0 +1,99 @@
+cargo test --release -- --nocapture --test-threads=1
+    Finished `release` profile [optimized] target(s) in 0.68s
+warning: the following packages contain code that will be rejected by a future version of Rust: block v0.1.6, proc-macro-error2 v2.0.1
+note: to see what the problems were, use the option `--future-incompat-report`, or run `cargo report future-incompatibilities --id 1`
+     Running unittests src/lib.rs (target/release/build/ztriton/c5e8a2fea84e438e/out/ztriton-c5e8a2fea84e438e)
+
+running 17 tests
+test jellyfin::tests::finds_adjacent_episodes ... ok
+test jellyfin::tests::groups_no_search_results ... ok
+test jellyfin::tests::groups_search_results_by_kind_in_server_order ... ok
+test keychain::tests::roundtrip_in_real_keychain ... ok
+test player::tests::choose_subtitle_matches_preference ... ok
+test player::tests::render_size_fits_1080p_and_stays_even ... ok
+test preferences::tests::serializes_subtitle_choice ... ok
+test resume::tests::finishing_starts_over_even_if_the_server_missed_the_stop ... ok
+test resume::tests::own_progress_report_echo_keeps_the_saved_position ... ok
+test resume::tests::own_stop_report_does_not_override_the_saved_position ... ok
+test resume::tests::parses_jellyfin_timestamps ... ok
+test resume::tests::positions_are_per_user_and_survive_a_reload ... ok
+test resume::tests::quick_handoff_to_another_device_is_not_mistaken_for_our_report ... ok
+test resume::tests::rewinding_here_beats_an_older_server_position ... ok
+test resume::tests::server_position_is_used_without_a_saved_one ... ok
+test resume::tests::server_position_wins_when_played_elsewhere_later ... ok
+test resume::tests::short_watch_resumes_although_the_server_forgot_it ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running unittests src/main.rs (target/release/build/ztriton/46e62f11d99fb74d/out/ztriton-46e62f11d99fb74d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/auth_keychain_e2e.rs (target/release/build/ztriton/ff7abe5784178c4a/out/auth_keychain_e2e-ff7abe5784178c4a)
+
+running 1 test
+test login_save_restore_signout ... bad password -> Incorrect username or password
+login ok: user_id=6c3c7b0fb90549158052ee655b38c837
+keychain item fields: ["server", "username", "session"]
+restored session ok: 2 libraries
+old token after sign-out -> GET /Users/Me: http://127.0.0.1:8096/Users/Me: status code 401
+PASS
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.36s
+
+     Running tests/jellyfin_e2e.rs (target/release/build/ztriton/59224c829b4721d9/out/jellyfin_e2e-59224c829b4721d9)
+
+running 1 test
+test jellyfin_stream_plays_through_libmpv ... libmpv client API: 2.6
+jellyfin: logged in, user_id=6c3c7b0fb90549158052ee655b38c837
+jellyfin: views = ["Movies", "Shows"]
+jellyfin: picked Episode 'Proof Show - S01E01' (04feaed99e7f9d035a16c6af77999bf3), runtime Some(120.0)s
+stream url: http://127.0.0.1:8096/Videos/04feaed99e7f9d035a16c6af77999bf3/stream?static=true
+mpv-version property: mpv v0.42.0
+loaded: duration=120.0s codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=
+playback: time-pos 0.17s -> 6.17s over 6.01s wall; frames 4 -> 148 (24.0 fps)
+frame #148: 1280x720 luma variance 610.1
+seek: target 60.0s -> time-pos 62.0s
+frame #196 after seek: luma variance 611.0
+--- mpv events ---
+[   0.000s] libmpv loaded: client API 2.6, mpv v0.42.0
+[   0.033s] OpenGL render context created (frames -> NV12 IOSurface -> Metal)
+[   0.033s] start-file
+[   0.110s] file-loaded: 1280x720 codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 duration=120.0s
+[   0.195s] video-reconfig: display 0x0 hwdec=videotoolbox
+[   0.195s] video-reconfig: display 0x0 hwdec=videotoolbox
+[   0.195s] playback-restart at 0.00s
+[   6.401s] playback-restart at 60.04s
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.56s
+
+     Running tests/search_e2e.rs (target/release/build/ztriton/19ae1bf6333998d0/out/search_e2e-19ae1bf6333998d0)
+
+running 1 test
+test search_groups_results_by_kind ... searching for Episode 'Proof Show - S01E01' (04feaed99e7f9d035a16c6af77999bf3)
+results: 0 movies, 0 shows, 1 episodes
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/subtitles_e2e.rs (target/release/build/ztriton/079f2f43e02af75b/out/subtitles_e2e-079f2f43e02af75b)
+
+running 1 test
+test external_subtitles_choose_and_remember ... == Modern Family S01E09, no remembered choice ==
+Error: no video found
+FAILED
+
+failures:
+
+failures:
+    external_subtitles_choose_and_remember
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `--test subtitles_e2e`
+make: *** [test] Error 101
+rustc 1.100.0 (0ef1bc386 2026-11-09)

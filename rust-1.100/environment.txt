@@ -1,0 +1,8 @@
+== guest OS
+ProductName:		macOS
+ProductVersion:		13.7.4
+BuildVersion:		22H420
+== Homebrew present?
+ls: /opt/homebrew: No such file or directory
+== Jellyfin reachable at http://192.168.64.1:8096
+{"LocalAddress":"http://192.168.215.2:8096","ServerName":"94109b60783b","Version":"10.11.5","ProductName":"Jellyfin Server","OperatingSystem":"","Id":"7496759d4e82477bac3be6c3894c3ab3","StartupWizardCompleted":true}
