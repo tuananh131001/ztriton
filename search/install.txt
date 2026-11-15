@@ -1,0 +1,10 @@
+/dev/disk4          	GUID_partition_scheme          	
+/dev/disk4s1        	Apple_APFS                     	
+/dev/disk5          	EF57347C-0000-11AA-AA11-0030654	
+/dev/disk5s1        	41504653-0000-11AA-AA11-0030654	/private/tmp/ztriton-dmg
+"disk4" ejected.
+  "CFBundleShortVersionString" => "0.0.6"
+  "CFBundleVersion" => "0.0.6"
+  "LSMinimumSystemVersion" => "13.0"
+/Applications/ztriton.app: valid on disk
+/Applications/ztriton.app: satisfies its Designated Requirement

@@ -1,0 +1,17 @@
+device: {'Id': 'ztriton-search-proof', 'AppName': 'ztriton', 'AppVersion': '0.0.6', 'LastUserName': 'proof', 'DateLastActivity': '2026-11-15T04:21:04.5535305Z'}
+2026-11-15T04:11:50 proof is online from macOS
+2026-11-15T04:11:50 proof successfully authenticated
+2026-11-15T04:11:58 proof is online from macOS
+2026-11-15T04:11:58 proof successfully authenticated
+2026-11-15T04:13:56 proof is online from macOS
+2026-11-15T04:13:56 proof successfully authenticated
+2026-11-15T04:14:08 proof has disconnected from macOS
+2026-11-15T04:14:08 proof is online from macOS
+2026-11-15T04:14:08 proof successfully authenticated
+2026-11-15T04:21:04 proof is playing Ventura Proof (2026) on macOS
+2026-11-15T04:21:28 proof has finished playing Ventura Proof (2026) on macOS
+2026-11-15T04:24:08 proof is online from host
+2026-11-15T04:24:08 proof successfully authenticated
+2026-11-15T04:24:15 proof has disconnected from host
+2026-11-15T04:24:15 proof is online from host
+2026-11-15T04:24:15 proof successfully authenticated

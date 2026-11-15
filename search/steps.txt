@@ -1,0 +1,32 @@
+04:16:39 click header 'Search ⌘F' button on Home
+04:16:53 type 'proof' into the focused field
+04:17:08 scroll results down to the Episodes shelf (VNC wheel events were not delivered: no scroll; see step at 04:20:06 for the Episodes shelf)
+04:17:09 click the 'Episodes 3' filter pill
+04:17:28 click the 'Movies 1' filter pill
+04:17:39 click 'Episodes 3' pill, then the S01E02 card
+04:17:42 press Esc on Detail
+04:17:54 click 'All 5' pill, then the 'Proof Show' series card
+04:18:09 press Esc on the series Library
+04:18:10 click the clear (x) button in the field
+04:18:11 type 'zzqx' (no matches)
+04:18:30 press Esc on Search (field focused)
+04:18:32 press Cmd-F on Home, sent as VNC super-f (did not reach the app as Command: no effect)
+04:18:33 type 'pro' (Home has no field: no effect), super-f again (no effect)
+04:18:35 Backspace on Home (no effect)
+04:18:47 (retry: VNC 'super' did not reach the app as Command) press Cmd-F on Home, sent as VNC meta-f (meta is Option here: no effect)
+04:19:07 app menu: ztriton > Search… (menu shows the ⌘F key equivalent)
+04:19:15 (between steps: typed 'pro'; VNC super-a typed 'a', meta-a typed 'å' (Option), alt-a selected all: this VNC server sends Command as 'alt')
+04:19:44 Backspace on the Cmd-A selection
+04:19:45 press Esc on Search
+04:19:47 press Cmd-F on Home (VNC alt-f)
+04:19:48 type 'pro', wait for results, press Cmd-F again on Search
+04:19:50 press Backspace in the field
+04:20:06 type 'proof', then Ctrl-Cmd-F (full screen) to show all three shelves
+04:20:19 click 'Episodes 3' pill (field loses focus), then press Esc
+04:20:34 Ctrl-Cmd-F to leave full screen, Cmd-F, type 'proof', click the movie, click Play
+04:20:48 press Cmd-F while the player is open
+04:21:02 (previous Play click missed; Cmd-F on Detail opened a new Search, as designed) Esc back to the movie Detail, click Resume
+04:21:11 press Cmd-F while the player is open
+04:21:27 Esc closes the player (Detail), Esc again
+04:21:33 stop the Jellyfin server (docker stop), click the clear (x) button, type 'proof'
+04:21:36 start the Jellyfin server again, edit the query to retry

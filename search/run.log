@@ -1,0 +1,50 @@
+[1794716128.574] start: ztriton 0.0.6 | rustc target aarch64 | libmpv client API 2.6 | autoplay=None
+[1794716180.892] auth: restored session from Keychain (service=dev.ztriton.player)
+[1794716180.968] home: logged in to http://192.168.64.1:8096 as user 6c3c7b0fb90549158052ee655b38c837; 2 libraries, shelves: 
+[1794716213.871] search: 'proof' -> 1 movies, 1 shows, 3 episodes
+[1794716292.298] search: 'zzqx' -> 0 movies, 0 shows, 0 episodes
+[1794716358.729] search: 'pro' -> 1 movies, 1 shows, 3 episodes
+[1794716360.276] search: 'proa' -> 0 movies, 0 shows, 0 episodes
+[1794716361.331] search: 'proaå' -> 0 movies, 0 shows, 0 episodes
+[1794716388.778] search: 'pro' -> 1 movies, 1 shows, 3 episodes
+[1794716406.764] search: 'proof' -> 1 movies, 1 shows, 3 episodes
+[1794716438.797] search: 'proof' -> 1 movies, 1 shows, 3 episodes
+[1794716464.539] player: libmpv mpv v0.42.0 | loading 'Ventura Proof (2026)' from http://192.168.64.1:8096/Videos/7f531c058647ca4eff7c04435c42b39e/stream?static=true (start 63.0s)
+[1794716464.589] player: 1 external subtitle(s), remembered choice None
+[1794716465.568] player: time-pos=63.73s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=0 | gpui frames presented=0 (0.0 fps)
+[1794716466.606] player: first frame presented via GPUI surface (1920x1080)
+[1794716466.630] player: time-pos=64.80s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=1 | gpui frames presented=1 (0.9 fps)
+[1794716467.693] player: time-pos=65.83s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=5 | gpui frames presented=5 (3.8 fps)
+[1794716468.698] player: time-pos=66.80s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=10 | gpui frames presented=10 (5.0 fps)
+[1794716469.735] player: time-pos=67.93s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=16 | gpui frames presented=15 (4.8 fps)
+[1794716470.777] player: time-pos=68.90s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=21 | gpui frames presented=21 (5.8 fps)
+[1794716471.817] player: time-pos=69.87s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=26 | gpui frames presented=26 (4.8 fps)
+[1794716472.894] proof: dumped presented NV12 surface 1920x1080 (mpv frame seq 32) at time-pos 71.03s -> /Users/admin/ztriton/proof/playback/gpui_frame_1.png
+[1794716472.895] proof: marker playing-1
+[1794716472.895] player: time-pos=71.03s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=32 | gpui frames presented=32 (5.6 fps)
+[1794716473.942] player: time-pos=72.00s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=37 | gpui frames presented=37 (4.8 fps)
+[1794716475.006] player: time-pos=73.13s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=43 | gpui frames presented=43 (5.6 fps)
+[1794716475.007] resume: saved 'Ventura Proof (2026)' at 73.13s of 90.0s
+[1794716476.033] player: time-pos=74.10s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=48 | gpui frames presented=48 (4.9 fps)
+[1794716476.948] proof: server /Sessions -> client="ztriton" device="macOS" NowPlayingItem="Ventura Proof (2026)" PositionTicks=741333333
+[1794716477.098] player: time-pos=75.27s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=54 | gpui frames presented=54 (5.6 fps)
+[1794716478.109] player: time-pos=76.20s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=59 | gpui frames presented=59 (4.9 fps)
+[1794716479.152] player: time-pos=77.17s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=64 | gpui frames presented=64 (4.8 fps)
+[1794716480.026] proof: seeking to 60% = 54.0s
+[1794716480.207] player: time-pos=54.00s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=70 | gpui frames presented=70 (5.7 fps)
+[1794716481.235] player: time-pos=54.80s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=75 | gpui frames presented=75 (4.9 fps)
+[1794716482.237] player: time-pos=55.77s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=80 | gpui frames presented=80 (5.0 fps)
+[1794716483.276] player: time-pos=56.93s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=86 | gpui frames presented=85 (4.8 fps)
+[1794716484.317] player: time-pos=57.90s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=91 | gpui frames presented=91 (5.8 fps)
+[1794716485.359] player: time-pos=58.87s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=96 | gpui frames presented=96 (4.8 fps)
+[1794716485.360] resume: saved 'Ventura Proof (2026)' at 58.87s of 90.0s
+[1794716486.054] proof: dumped presented NV12 surface 1920x1080 (mpv frame seq 100) at time-pos 59.63s -> /Users/admin/ztriton/proof/playback/gpui_frame_2.png
+[1794716486.054] proof: marker playing-2
+[1794716486.423] player: time-pos=59.63s / 90.0s paused=true muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=102 | gpui frames presented=102 (5.6 fps)
+[1794716487.443] player: time-pos=59.63s / 90.0s paused=true muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1920x1080 hwdec=no | mpv frames=104 | gpui frames presented=104 (2.0 fps)
+[1794716488.024] resume: saved 'Ventura Proof (2026)' at 59.63s of 90.0s
+[1794716488.025] player: closing at 59.63s, reporting stop to Jellyfin
+[1794716488.189] proof: marker paused-overlay
+[1794716494.782] search: 'proof' failed: GET /Items?userId=6c3c7b0fb90549158052ee655b38c837&Recursive=true&SearchTerm=proof&IncludeItemTypes=Movie,Series,Episode&Fields=Overview,Genres,CommunityRating,OfficialRating,ProductionYear,ImageTags,BackdropImageTags&Limit=100: http://192.168.64.1:8096/Items?userId=6c3c7b0fb90549158052ee655b38c837&Recursive=true&SearchTerm=proof&IncludeItemTypes=Movie,Series,Episode&Fields=Overview,Genres,CommunityRating,OfficialRating,ProductionYear,ImageTags,BackdropImageTags&Limit=100: Connection Failed: Connect error: Connection refused (os error 61)
+[1794716495.489] proof: done
+[1794716506.465] search: 'proo' -> 1 movies, 1 shows, 3 episodes
