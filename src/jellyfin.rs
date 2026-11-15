@@ -417,6 +417,18 @@ impl Jellyfin {
         Ok(r.items)
     }
 
+    /// Movies, shows and episodes in every library whose name matches `term`,
+    /// in the server's relevance order.
+    pub fn search(&self, term: &str, limit: usize) -> Result<SearchResults> {
+        let r: ItemsResponse = self.get_json(&format!(
+            "/Items?userId={}&Recursive=true&SearchTerm={}&IncludeItemTypes=Movie,Series,Episode&Fields={}&Limit={limit}",
+            self.user_id,
+            enc(term),
+            Self::FIELDS
+        ))?;
+        Ok(group_search_results(r.items))
+    }
+
     /// One item by id.
     pub fn item(&self, id: &str) -> Result<Item> {
         self.get_json(&format!("/Items/{}?userId={}", enc(id), self.user_id))
@@ -570,6 +582,43 @@ pub fn adjacent_episodes(episodes: &[Item], current_id: &str) -> (Option<Item>, 
     (previous, next)
 }
 
+/// Search hits split by kind, each keeping the order the server returned.
+#[derive(Debug, Clone, Default)]
+pub struct SearchResults {
+    /// Items of type `"Movie"`.
+    pub movies: Vec<Item>,
+    /// Items of type `"Series"`.
+    pub shows: Vec<Item>,
+    /// Items of type `"Episode"`.
+    pub episodes: Vec<Item>,
+}
+
+impl SearchResults {
+    /// Number of results across all groups.
+    pub fn len(&self) -> usize {
+        self.movies.len() + self.shows.len() + self.episodes.len()
+    }
+
+    /// Whether no group has any result.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Group search hits into movies, shows and episodes; other kinds are dropped.
+pub fn group_search_results(items: Vec<Item>) -> SearchResults {
+    let mut results = SearchResults::default();
+    for item in items {
+        match item.kind.as_str() {
+            "Movie" => results.movies.push(item),
+            "Series" => results.shows.push(item),
+            "Episode" => results.episodes.push(item),
+            _ => {}
+        }
+    }
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -581,6 +630,14 @@ mod tests {
                     .expect("valid item json")
             })
             .collect()
+    }
+
+    fn item(id: &str, kind: &str) -> Item {
+        serde_json::from_value(serde_json::json!({ "Id": id, "Name": id, "Type": kind })).expect("valid item json")
+    }
+
+    fn item_ids(items: &[Item]) -> Vec<&str> {
+        items.iter().map(|item| item.id.as_str()).collect()
     }
 
     fn ids(adjacent: (Option<Item>, Option<Item>)) -> (Option<String>, Option<String>) {
@@ -595,5 +652,31 @@ mod tests {
         assert_eq!(ids(adjacent_episodes(&series, "e3")), (Some("e2".into()), None));
         assert_eq!(ids(adjacent_episodes(&series, "missing")), (None, None));
         assert_eq!(ids(adjacent_episodes(&[], "e1")), (None, None));
+    }
+
+    #[test]
+    fn groups_search_results_by_kind_in_server_order() {
+        let results = group_search_results(vec![
+            item("m1", "Movie"),
+            item("e1", "Episode"),
+            item("s1", "Series"),
+            item("m2", "Movie"),
+            item("b1", "BoxSet"),
+            item("e2", "Episode"),
+            item("s2", "Series"),
+        ]);
+        assert_eq!(item_ids(&results.movies), ["m1", "m2"]);
+        assert_eq!(item_ids(&results.shows), ["s1", "s2"]);
+        assert_eq!(item_ids(&results.episodes), ["e1", "e2"]);
+        assert_eq!(results.len(), 6);
+        assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn groups_no_search_results() {
+        let results = group_search_results(vec![]);
+        assert!(results.is_empty());
+        assert_eq!(results.len(), 0);
+        assert!(group_search_results(vec![item("f1", "Folder")]).is_empty());
     }
 }

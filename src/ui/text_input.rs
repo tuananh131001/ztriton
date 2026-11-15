@@ -5,7 +5,7 @@
 use super::*;
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton,
+    EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString,
     Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, point, prelude::*, px,
     relative, rgba, size,
@@ -37,11 +37,16 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// Emitted whenever the field's text changes, by typing or by [`TextInput::set_text`].
+pub struct Changed;
+
 pub struct TextInput {
     focus_handle: FocusHandle,
     content: SharedString,
     placeholder: SharedString,
     masked: bool,
+    /// Whether the field draws its own background, border and padding.
+    framed: bool,
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
@@ -57,6 +62,7 @@ impl TextInput {
             content: "".into(),
             placeholder: placeholder.into(),
             masked,
+            framed: true,
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
@@ -66,16 +72,34 @@ impl TextInput {
         }
     }
 
+    /// Leave the background, border and padding to a surrounding container.
+    pub fn without_frame(mut self) -> Self {
+        self.framed = false;
+        self
+    }
+
     pub fn text(&self) -> String {
         self.content.to_string()
     }
 
     pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
-        self.content = text.into();
+        self.set_content(text.into(), cx);
         self.selected_range = self.content.len()..self.content.len();
         self.selection_reversed = false;
         self.marked_range = None;
         cx.notify();
+    }
+
+    pub fn select_all_text(&mut self, cx: &mut Context<Self>) {
+        self.move_to(0, cx);
+        self.select_to(self.content.len(), cx)
+    }
+
+    fn set_content(&mut self, content: SharedString, cx: &mut Context<Self>) {
+        if content != self.content {
+            self.content = content;
+            cx.emit(Changed);
+        }
     }
 
     // -------------------------------------------------- masking offset maps
@@ -121,8 +145,7 @@ impl TextInput {
     }
 
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_to(0, cx);
-        self.select_to(self.content.len(), cx)
+        self.select_all_text(cx)
     }
 
     fn home(&mut self, _: &Home, _: &mut Window, cx: &mut Context<Self>) {
@@ -308,9 +331,10 @@ impl EntityInputHandler for TextInput {
             .map(|r| self.range_from_utf16(r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
-        self.content = (self.content.get(..range.start).unwrap_or_default().to_owned()
+        let content = self.content.get(..range.start).unwrap_or_default().to_owned()
             + new_text
-            + self.content.get(range.end..).unwrap_or_default()).into();
+            + self.content.get(range.end..).unwrap_or_default();
+        self.set_content(content.into(), cx);
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.marked_range = None;
         cx.notify();
@@ -329,9 +353,10 @@ impl EntityInputHandler for TextInput {
             .map(|r| self.range_from_utf16(r))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
-        self.content = (self.content.get(..range.start).unwrap_or_default().to_owned()
+        let content = self.content.get(..range.start).unwrap_or_default().to_owned()
             + new_text
-            + self.content.get(range.end..).unwrap_or_default()).into();
+            + self.content.get(range.end..).unwrap_or_default();
+        self.set_content(content.into(), cx);
         self.marked_range = (!new_text.is_empty()).then(|| range.start..range.start + new_text.len());
         self.selected_range = new_selected_range_utf16
             .as_ref()
@@ -532,12 +557,14 @@ impl Render for TextInput {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .w_full()
-            .px_3()
-            .py_2()
-            .rounded_lg()
-            .bg(surface_hi())
-            .border_1()
-            .border_color(if focused { accent() } else { rgba(0xffffff1a).into() })
+            .when(self.framed, |d| {
+                d.px_3()
+                    .py_2()
+                    .rounded_lg()
+                    .bg(surface_hi())
+                    .border_1()
+                    .border_color(if focused { accent() } else { rgba(0xffffff1a).into() })
+            })
             .text_color(text())
             .text_size(px(15.))
             .line_height(px(22.))
@@ -545,6 +572,8 @@ impl Render for TextInput {
             .child(TextElement { input: cx.entity() })
     }
 }
+
+impl EventEmitter<Changed> for TextInput {}
 
 impl Focusable for TextInput {
     fn focus_handle(&self, _: &App) -> FocusHandle {

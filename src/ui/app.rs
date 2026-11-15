@@ -1,20 +1,21 @@
-//! Root view: navigation stack (Home -> Library -> Detail -> Player).
+//! Root view: navigation stack (Home -> Library -> Detail -> Player, and Search from Home or Library).
 
 use super::login::{LoggedIn, LoginView};
 use super::player_view::PlayerView;
+use super::text_input::{self, TextInput};
 use super::*;
 use gpui::{
-    AnyElement, App, Context, Entity, FocusHandle, Focusable, FontWeight, IntoElement, ObjectFit,
-    Render, SharedString, Window, actions, div, img, linear_color_stop, linear_gradient,
-    prelude::*, px, rgba,
+    AnyElement, App, Context, ElementId, Entity, FocusHandle, Focusable, FontWeight, IntoElement,
+    ObjectFit, Render, SharedString, Task, Window, actions, div, img, linear_color_stop,
+    linear_gradient, prelude::*, px, rgba,
 };
 use std::collections::HashMap;
 use std::time::Duration;
-use ztriton::jellyfin::{Item, Jellyfin};
+use ztriton::jellyfin::{Item, Jellyfin, SearchResults};
 use ztriton::keychain::{self, SavedLogin};
 use ztriton::resume::ResumeStore;
 
-actions!(ztriton, [Back, Quit, ToggleFullscreen, SignOut]);
+actions!(ztriton, [Back, Quit, ToggleFullscreen, SignOut, OpenSearch]);
 
 #[derive(Clone)]
 enum Screen {
@@ -26,6 +27,56 @@ enum Screen {
         resume_secs: f64,
     },
     Player(Entity<PlayerView>),
+    Search(Entity<SearchState>),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SearchFilter {
+    All,
+    Movies,
+    Shows,
+    Episodes,
+}
+
+impl SearchFilter {
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Movies => "Movies",
+            Self::Shows => "Shows",
+            Self::Episodes => "Episodes",
+        }
+    }
+
+    fn count(self, results: &SearchResults) -> usize {
+        match self {
+            Self::All => results.len(),
+            Self::Movies => results.movies.len(),
+            Self::Shows => results.shows.len(),
+            Self::Episodes => results.episodes.len(),
+        }
+    }
+}
+
+/// The results shown on a Search screen and the query they answer.
+struct ShownResults {
+    query: String,
+    results: Arc<SearchResults>,
+}
+
+struct SearchState {
+    input: Entity<TextInput>,
+    filter: SearchFilter,
+    /// Trimmed query of the latest search started, so edits that only change
+    /// surrounding whitespace do not search again.
+    query: String,
+    /// Kept while a newer query is in flight so the screen does not flicker.
+    results: Option<ShownResults>,
+    searching: bool,
+    error: Option<String>,
+    /// Replacing it drops the previous debounce or request, so only the latest
+    /// query can fill the results.
+    pending: Option<Task<()>>,
 }
 
 struct Shelf {
@@ -62,6 +113,8 @@ const POSTER_W: f32 = 150.;
 const POSTER_H: f32 = 225.;
 const WIDE_W: f32 = 280.;
 const WIDE_H: f32 = 158.;
+const SEARCH_DEBOUNCE: Duration = Duration::from_millis(250);
+const SEARCH_LIMIT: usize = 100;
 
 impl ZtritonApp {
     pub fn new(autoplay: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -336,7 +389,112 @@ impl ZtritonApp {
             })
             .detach();
         }
-        let _ = window;
+        // A card clicked on the Search screen leaves the field focused, and its
+        // focus handle is not rendered on the next screen.
+        window.focus(&self.focus);
+        cx.notify();
+    }
+
+    fn open_search(&mut self, _: &OpenSearch, window: &mut Window, cx: &mut Context<Self>) {
+        if self.login.is_some() || self.jf.is_none() {
+            return;
+        }
+        match self.stack.last() {
+            Some(Screen::Player(_)) => return,
+            Some(Screen::Search(search)) => {
+                let input = search.read(cx).input.clone();
+                window.focus(&input.focus_handle(cx));
+                input.update(cx, |input, cx| input.select_all_text(cx));
+                return;
+            }
+            _ => {}
+        }
+        let input = cx.new(|cx| TextInput::new("Movies, shows and episodes", false, cx).without_frame());
+        // The subscription ends when the field is released with its Search screen.
+        cx.subscribe(&input, |this, input, _: &text_input::Changed, cx| this.search_query_changed(&input, cx))
+            .detach();
+        window.focus(&input.focus_handle(cx));
+        let search = cx.new(|_| SearchState {
+            input,
+            filter: SearchFilter::All,
+            query: String::new(),
+            results: None,
+            searching: false,
+            error: None,
+            pending: None,
+        });
+        self.stack.push(Screen::Search(search));
+        cx.notify();
+    }
+
+    fn search_query_changed(&mut self, input: &Entity<TextInput>, cx: &mut Context<Self>) {
+        let search = self.stack.iter().find_map(|screen| match screen {
+            Screen::Search(search) if search.read(cx).input == *input => Some(search.clone()),
+            _ => None,
+        });
+        let (Some(search), Some(jf)) = (search, self.jf.clone()) else { return };
+        let query = input.read(cx).text().trim().to_string();
+        if query == search.read(cx).query {
+            return;
+        }
+        if query.is_empty() {
+            search.update(cx, |state, _| {
+                state.query.clear();
+                state.pending = None;
+                state.results = None;
+                state.searching = false;
+                state.error = None;
+            });
+            cx.notify();
+            return;
+        }
+        let weak_search = search.downgrade();
+        let task = cx.spawn({
+            let query = query.clone();
+            async move |this, cx| {
+                cx.background_executor().timer(SEARCH_DEBOUNCE).await;
+                let result = cx
+                    .background_executor()
+                    .spawn({
+                        let query = query.clone();
+                        async move { jf.search(&query, SEARCH_LIMIT) }
+                    })
+                    .await;
+                this.update(cx, |_, cx| {
+                    let Some(search) = weak_search.upgrade() else { return };
+                    search.update(cx, |state, _| {
+                        state.searching = false;
+                        match result {
+                            Ok(results) => {
+                                proof_log(format!(
+                                    "search: '{query}' -> {} movies, {} shows, {} episodes",
+                                    results.movies.len(),
+                                    results.shows.len(),
+                                    results.episodes.len()
+                                ));
+                                if state.filter.count(&results) == 0 {
+                                    state.filter = SearchFilter::All;
+                                }
+                                state.results = Some(ShownResults { query, results: Arc::new(results) });
+                                state.error = None;
+                            }
+                            Err(e) => {
+                                proof_log(format!("search: '{query}' failed: {e:#}"));
+                                state.results = None;
+                                state.error = Some(format!("{e:#}"));
+                            }
+                        }
+                    });
+                    cx.notify();
+                })
+                .log_err();
+            }
+        });
+        search.update(cx, |state, _| {
+            state.query = query;
+            state.searching = true;
+            state.pending = Some(task);
+        });
         cx.notify();
     }
 
@@ -535,7 +693,21 @@ impl ZtritonApp {
             .into_any_element()
     }
 
-    fn header(&self, title: String, can_back: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn back_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("back")
+            .flex_none()
+            .px_3()
+            .py_1()
+            .rounded_md()
+            .bg(surface_hi())
+            .cursor_pointer()
+            .hover(|s| s.bg(accent()).text_color(bg()))
+            .child("‹ Back")
+            .on_click(cx.listener(|this, _, window, cx| this.back(&Back, window, cx)))
+    }
+
+    fn header(&self, title: String, can_back: bool, searchable: bool, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .items_center()
@@ -543,22 +715,31 @@ impl ZtritonApp {
             .px_8()
             .pt_8()
             .pb_4()
-            .when(can_back, |d| {
+            .when(can_back, |d| d.child(self.back_button(cx)))
+            .child(div().text_3xl().font_weight(FontWeight::BOLD).text_color(text()).child(title))
+            .child(div().flex_1())
+            .when(searchable && self.jf.is_some(), |d| {
                 d.child(
                     div()
-                        .id("back")
+                        .id("search")
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap_2()
                         .px_3()
                         .py_1()
                         .rounded_md()
                         .bg(surface_hi())
+                        .text_sm()
+                        .text_color(text())
                         .cursor_pointer()
                         .hover(|s| s.bg(accent()).text_color(bg()))
-                        .child("‹ Back")
-                        .on_click(cx.listener(|this, _, window, cx| this.back(&Back, window, cx))),
+                        .child(magnifier_icon(14.))
+                        .child("Search")
+                        .child(div().text_xs().opacity(0.7).child("⌘F"))
+                        .on_click(cx.listener(|this, _, window, cx| this.open_search(&OpenSearch, window, cx))),
                 )
             })
-            .child(div().text_3xl().font_weight(FontWeight::BOLD).text_color(text()).child(title))
-            .child(div().flex_1())
             .when(!can_back && self.jf.is_some(), |d| {
                 d.child(
                     div()
@@ -583,7 +764,7 @@ impl ZtritonApp {
             return div()
                 .flex()
                 .flex_col()
-                .child(self.header("ztriton".into(), false, cx))
+                .child(self.header("ztriton".into(), false, true, cx))
                 .child(div().px_8().text_color(gpui::red()).child(format!("Error: {err}")))
                 .into_any_element();
         }
@@ -622,28 +803,11 @@ impl ZtritonApp {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .child(self.header("ztriton".into(), false, cx))
+            .child(self.header("ztriton".into(), false, true, cx))
             .child(library_tabs);
         for (i, (title, items, wide)) in shelves.into_iter().enumerate() {
             let cards: Vec<AnyElement> = items.iter().map(|it| self.poster_card(it, wide, cx)).collect();
-            col = col.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .pt_6()
-                    .child(div().px_8().text_xl().font_weight(FontWeight::SEMIBOLD).text_color(text()).child(title))
-                    .child(
-                        div()
-                            .id(("shelf", i))
-                            .overflow_x_scroll()
-                            .flex()
-                            .gap_4()
-                            .px_8()
-                            .pb_2()
-                            .children(cards),
-                    ),
-            );
+            col = col.child(shelf(("shelf", i).into(), title, cards));
         }
         col.child(div().h(px(40.))).into_any_element()
     }
@@ -663,9 +827,181 @@ impl ZtritonApp {
             .overflow_y_scroll()
             .flex()
             .flex_col()
-            .child(self.header(parent.name.clone(), true, cx))
+            .child(self.header(parent.name.clone(), true, true, cx))
             .child(body)
             .child(div().h(px(40.)))
+            .into_any_element()
+    }
+
+    fn render_search(&mut self, search: &Entity<SearchState>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let state = search.read(cx);
+        let input = state.input.clone();
+        let filter = state.filter;
+        let searching = state.searching;
+        let error = state.error.clone();
+        let has_query = !state.query.is_empty();
+        let shown = state.results.as_ref().map(|shown| (shown.query.clone(), shown.results.clone()));
+        let input_focused = input.focus_handle(cx).is_focused(window);
+        let input_empty = input.read(cx).text().is_empty();
+
+        let field = div()
+            .id("search-field")
+            .flex_1()
+            .max_w(px(720.))
+            .h(px(44.))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .px_3()
+            .rounded(px(10.))
+            .bg(surface_hi())
+            .border_1()
+            .border_color(if input_focused { accent() } else { rgba(0xffffff1a).into() })
+            .text_color(text_dim())
+            .cursor_text()
+            .on_click({
+                let input = input.clone();
+                move |_, window, cx| window.focus(&input.focus_handle(cx))
+            })
+            .child(magnifier_icon(16.))
+            .child(div().flex_1().min_w_0().child(input.clone()))
+            .when(!input_empty, |d| {
+                d.child(
+                    div()
+                        .id("search-clear")
+                        .flex_none()
+                        .size(px(24.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(rgba(0x3a4252ff))
+                        .text_xs()
+                        .text_color(text())
+                        .cursor_pointer()
+                        .hover(|s| s.bg(accent()).text_color(bg()))
+                        .child("✕")
+                        .on_click({
+                            let input = input.clone();
+                            move |_, window, cx| {
+                                input.update(cx, |input, cx| input.set_text("", cx));
+                                window.focus(&input.focus_handle(cx));
+                            }
+                        }),
+                )
+            });
+        let header = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_4()
+            .px_8()
+            .pt_8()
+            .pb_4()
+            .child(self.back_button(cx))
+            .child(field)
+            .child(div().flex_1())
+            .child(fullscreen_button("fullscreen", self.fullscreen));
+
+        let status = if searching {
+            Some("Searching…".to_string())
+        } else {
+            shown.as_ref().map(|(_, results)| match results.len() {
+                1 => "1 result".to_string(),
+                count => format!("{count} results"),
+            })
+        };
+        let pills = shown.as_ref().filter(|_| has_query).map(|(_, results)| {
+            [SearchFilter::All, SearchFilter::Movies, SearchFilter::Shows, SearchFilter::Episodes]
+                .into_iter()
+                .filter(|pill| *pill == SearchFilter::All || pill.count(results) > 0)
+                .map(|pill| {
+                    let selected = pill == filter;
+                    let search = search.clone();
+                    div()
+                        .id(SharedString::from(format!("filter-{}", pill.label())))
+                        .flex()
+                        .gap_2()
+                        .px_4()
+                        .py_2()
+                        .rounded_full()
+                        .text_sm()
+                        .cursor_pointer()
+                        .when(selected, |d| d.bg(accent()).text_color(bg()).font_weight(FontWeight::SEMIBOLD))
+                        .when(!selected, |d| d.bg(surface_hi()).text_color(text()).hover(|s| s.bg(accent()).text_color(bg())))
+                        .child(pill.label())
+                        .child(div().opacity(0.65).child(pill.count(results).to_string()))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            search.update(cx, |state, _| state.filter = pill);
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                })
+                .collect::<Vec<_>>()
+        });
+        let toolbar = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(10.))
+            .px_8()
+            .pt_1()
+            .pb_2()
+            .children(pills.unwrap_or_default())
+            .child(div().flex_1())
+            .children(status.filter(|_| has_query).map(|status| div().text_sm().text_color(text_dim()).child(status)));
+
+        let message = |message: String| div().px_8().pt_6().text_color(text_dim()).child(message).into_any_element();
+        let body = match (&error, &shown) {
+            _ if !has_query => message("Search your movies, shows and episodes".into()),
+            (Some(error), _) => div().px_8().pt_6().text_color(gpui::red()).child(format!("Error: {error}")).into_any_element(),
+            (None, None) => div().into_any_element(),
+            (None, Some((query, results))) if results.is_empty() => message(format!("No results for “{query}”")),
+            (None, Some((_, results))) => {
+                let sections = [
+                    (SearchFilter::Movies, &results.movies, false),
+                    (SearchFilter::Shows, &results.shows, false),
+                    (SearchFilter::Episodes, &results.episodes, true),
+                ];
+                let mut column = div().flex().flex_col();
+                for (section, items, wide) in sections {
+                    if items.is_empty() || (filter != SearchFilter::All && filter != section) {
+                        continue;
+                    }
+                    let cards: Vec<AnyElement> = items.iter().map(|item| self.poster_card(item, wide, cx)).collect();
+                    column = column.child(if filter == SearchFilter::All {
+                        shelf(SharedString::from(format!("search-{}", section.label())).into(), section.label(), cards)
+                            .into_any_element()
+                    } else {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .pt_6()
+                            .child(section_title(section.label()))
+                            .child(div().flex().flex_wrap().gap_6().px_8().children(cards))
+                            .into_any_element()
+                    });
+                }
+                column.into_any_element()
+            }
+        };
+
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(header)
+            .child(toolbar)
+            .child(
+                div()
+                    .id("search-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(body)
+                    .child(div().h(px(40.))),
+            )
             .into_any_element()
     }
 
@@ -733,7 +1069,7 @@ impl ZtritonApp {
                     .size_full()
                     .flex()
                     .flex_col()
-                    .child(self.header(String::new(), true, cx))
+                    .child(self.header(String::new(), true, false, cx))
                     .child(
                         div()
                             .flex()
@@ -812,6 +1148,7 @@ impl Render for ZtritonApp {
             Screen::Library { parent, .. } => format!("ztriton — {}", parent.name),
             Screen::Detail { item, .. } => format!("ztriton — {}", item.name),
             Screen::Player(_) => "ztriton — Playing".to_string(),
+            Screen::Search(_) => "ztriton — Search".to_string(),
         };
         self.fullscreen = window.is_fullscreen();
         if title != self.title {
@@ -824,6 +1161,7 @@ impl Render for ZtritonApp {
             (None, Screen::Library { parent, items }) => self.render_library(parent, items, cx),
             (None, Screen::Detail { item, resume_secs }) => self.render_detail(item, *resume_secs, cx),
             (None, Screen::Player(view)) => view.clone().into_any_element(),
+            (None, Screen::Search(search)) => self.render_search(search, window, cx),
         };
         // Login and the connecting/signing-out placeholder render no header, so
         // they get the fullscreen control as an overlay instead.
@@ -833,6 +1171,7 @@ impl Render for ZtritonApp {
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::back))
             .on_action(cx.listener(Self::sign_out))
+            .on_action(cx.listener(Self::open_search))
             // Handled on the root view rather than via a global `cx.on_action`: during key
             // dispatch the window is already leased, so updating it from a global handler fails.
             .on_action(|_: &ToggleFullscreen, window, _| window.toggle_fullscreen())
@@ -846,6 +1185,21 @@ impl Render for ZtritonApp {
                 d.child(div().absolute().top_8().right_8().child(fullscreen_button("fullscreen-overlay", self.fullscreen)))
             })
     }
+}
+
+fn section_title(title: impl Into<SharedString>) -> impl IntoElement {
+    div().px_8().text_xl().font_weight(FontWeight::SEMIBOLD).text_color(text()).child(title.into())
+}
+
+/// A titled, horizontally scrolling row of cards.
+fn shelf(id: ElementId, title: impl Into<SharedString>, cards: Vec<AnyElement>) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_6()
+        .child(section_title(title))
+        .child(div().id(id).overflow_x_scroll().flex().gap_4().px_8().pb_2().children(cards))
 }
 
 /// Pixel width to request for an image shown `points` wide on a 2x display.

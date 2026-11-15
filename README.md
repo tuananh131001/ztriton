@@ -6,6 +6,7 @@ A native macOS Jellyfin client built with GPUI, with playback through libmpv.
 
 - Sign in once; the session is kept in the macOS Keychain.
 - Home, detail and player screens.
+- Search movies, shows and episodes across all libraries as you type (`⌘F`).
 - Hardware-decoded video (VideoToolbox) rendered on the GPU via IOSurfaces
   drawn with Metal.
 - Subtitle picker, including sidecar files (e.g. `.srt`) stored next to the
