@@ -1,9 +1,5 @@
 //! End-to-end proof: real Jellyfin server -> libmpv (mpv 0.42) -> SW render frames.
 //! Run: cargo test --release --test jellyfin_e2e -- --nocapture
-#![expect(
-    unused_crate_dependencies,
-    reason = "integration tests see every dependency of the package"
-)]
 
 use anyhow::Context;
 use std::time::{Duration, Instant};

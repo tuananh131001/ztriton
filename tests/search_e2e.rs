@@ -2,10 +2,6 @@
 //! into movies, shows and episodes, and a nonsense term finds nothing.
 //! Uses JELLYFIN_URL/USER/PASSWORD (environment or .env), else the app's saved Keychain session (read-only).
 //! Run: cargo test --release --test search_e2e -- --nocapture
-#![expect(
-    unused_crate_dependencies,
-    reason = "integration tests see every dependency of the package"
-)]
 
 use anyhow::{Result, ensure};
 use ztriton::jellyfin::Jellyfin;

@@ -2,10 +2,6 @@
 //! chosen, and a remembered choice is re-applied to the next episode.
 //! Uses JELLYFIN_URL/USER/PASSWORD (environment or .env), else the app's saved Keychain session (read-only).
 //! Run: cargo test --release --test subtitles_e2e -- --nocapture
-#![expect(
-    unused_crate_dependencies,
-    reason = "integration tests see every dependency of the package"
-)]
 
 use anyhow::{Result, anyhow, ensure};
 use std::time::{Duration, Instant};

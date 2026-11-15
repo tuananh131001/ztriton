@@ -1,8 +1,4 @@
 //! ztriton core: Jellyfin client, libmpv player, and saved login/preferences.
-#![expect(
-    unused_crate_dependencies,
-    reason = "Cargo shares one dependency list between the library, the app binary and the tests"
-)]
 
 mod gpu_video;
 pub mod jellyfin;

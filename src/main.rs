@@ -1,8 +1,4 @@
 //! ztriton: a native macOS Jellyfin client.
-#![expect(
-    unused_crate_dependencies,
-    reason = "Cargo shares one dependency list between the library, the app binary and the tests"
-)]
 
 mod ui;
 

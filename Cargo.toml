@@ -2,7 +2,7 @@
 name = "ztriton"
 version = "0.0.7"
 edition = "2024"
-rust-version = "1.99"
+rust-version = "1.100"
 
 [dependencies]
 gpui = { version = "0.2.2", default-features = false, features = ["font-kit", "runtime_shaders"] }
