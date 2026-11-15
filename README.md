@@ -1,5 +1,7 @@
 # ztriton
 
+![ztriton: Home, searching for "bunny", and the Big Buck Bunny page](docs/demo.gif)
+
 A native macOS Jellyfin client built with GPUI, with playback through libmpv.
 
 - Sign in once; the session is kept in the macOS Keychain.
