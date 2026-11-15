@@ -2,10 +2,6 @@
 //! live Jellyfin server. Uses a separate Keychain service and device id so it
 //! never touches the app's own saved login or session.
 //! Run (credentials from the environment or .env): cargo test --test auth_keychain_e2e -- --nocapture
-#![expect(
-    unused_crate_dependencies,
-    reason = "integration tests see every dependency of the package"
-)]
 
 use anyhow::Context;
 use std::process::Command;

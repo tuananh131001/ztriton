@@ -17,7 +17,7 @@ A native macOS Jellyfin client built with GPUI, with playback through libmpv.
 ## Requirements
 
 - The app and DMG run on macOS 13 Ventura or later, with no mpv installed.
-- To build: Rust 1.99 (`mise install`) and the Xcode command line tools.
+- To build: Rust 1.100 (`mise install`) and the Xcode command line tools.
   `cargo run`/`make test` link Homebrew's mpv 0.42+ (`brew install mpv`).
   `make app`/`make dmg` build libmpv 0.42 and its dependencies from source
   for macOS 13 (`scripts/build-libmpv.sh`, a few minutes the first time) and
