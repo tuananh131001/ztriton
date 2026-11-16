@@ -1,3 +1,5 @@
+> [!IMPORTANT]
+> Remove this line to confirm you've reviewed this PR before submitting.
 # ztriton
 
 ![ztriton: Home, searching for "bunny", and the Big Buck Bunny page](docs/demo.gif)

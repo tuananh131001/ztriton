@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.8 — 2026-11-17
 
 - Playback settings (⌘, or **Settings** on Home): maximum resolution, bitrate (Auto runs a speed test before each play; Maximum is 360 Mbps), compatibility (Auto, Compatible, Direct Play, Custom) and Force HDR/DV transcode. They are sent to the server in one PlaybackInfo request when you press Play, and the server sends the file as-is or transcodes it to fit.
 - **Quality** menu in the player: change resolution or bitrate for the current video; the stream restarts at the same spot and the saved settings are unchanged.
