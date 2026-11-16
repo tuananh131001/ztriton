@@ -1,0 +1,5 @@
+link capped at 4 Mbps between server and player; movie 'Bitrate Proof (2026)'; 40s of wall time per run
+Auto speed test through the slow link measured 3.3 Mbps
+Maximum  bitrate   Maximum: DirectPlay  | first frame after 1.5s | 7 stall(s), 27.0s stalled | 10.6s of movie in 38.5s (28% of real time)
+Lowered  bitrate    2 Mbps: Transcode   [ContainerBitrateExceedsLimit] | first frame after 2.6s | 0 stall(s), 0.0s stalled | 37.5s of movie in 37.4s (100% of real time)
+Auto     bitrate      Auto: Transcode   [ContainerBitrateExceedsLimit] | first frame after 2.8s | 1 stall(s), 1.5s stalled | 35.6s of movie in 37.2s (96% of real time)

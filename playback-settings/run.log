@@ -1,0 +1,74 @@
+[1794849213.515] start: ztriton 0.0.7 | rustc target aarch64 | libmpv client API 2.6 | autoplay=Some("Ventura Proof")
+[1794849213.667] auth: restored session from Keychain (service=dev.ztriton.player)
+[1794849213.678] home: logged in to http://192.168.64.1:8096 as user 6c3c7b0fb90549158052ee655b38c837; 2 libraries, shelves: Recently Added in Movies (2)
+[1794849217.818] autoplay: opening detail for 'Ventura Proof (2026)' (7f531c058647ca4eff7c04435c42b39e)
+[1794849222.033] player: libmpv mpv v0.42.0 | asking the server how to stream 'Ventura Proof (2026)' (start 0.0s)
+[1794849222.067] bitrate: speed test measured 360 Mbps
+[1794849222.072] player: server chose Transcode (VideoResolutionNotSupported) for 720p · Auto · Auto (max 360 Mbps) -> http://192.168.64.1:8096/videos/7f531c05-8647-ca4e-ff7c-04435c42b39e/master.m3u8?… | 1 external subtitle(s), subtitle choice None
+[1794849223.092] player: time-pos=0.09s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=0 | gpui frames presented=0 (0.0 fps)
+[1794849223.936] player: first frame presented via GPUI surface (1280x720)
+[1794849224.116] player: time-pos=1.22s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=1 | gpui frames presented=1 (1.0 fps)
+[1794849224.136] player: reported the start of the Transcode stream at 1.22s
+[1794849225.156] player: time-pos=2.29s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=3 | gpui frames presented=3 (1.9 fps)
+[1794849226.200] player: time-pos=3.42s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=13 | gpui frames presented=13 (9.6 fps)
+[1794849227.281] player: time-pos=4.49s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=24 | gpui frames presented=24 (10.2 fps)
+[1794849228.340] player: time-pos=5.55s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=35 | gpui frames presented=35 (10.4 fps)
+[1794849229.406] player: time-pos=6.69s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=48 | gpui frames presented=47 (11.2 fps)
+[1794849230.080] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 55) at time-pos 7.29s -> /Users/admin/ztriton/proof/playback/gpui_frame_1.png
+[1794849230.081] proof: marker playing-1
+[1794849230.469] player: time-pos=7.72s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=60 | gpui frames presented=60 (12.2 fps)
+[1794849231.532] player: time-pos=8.75s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=72 | gpui frames presented=72 (11.3 fps)
+[1794849232.600] player: time-pos=9.85s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=85 | gpui frames presented=85 (12.2 fps)
+[1794849232.601] resume: saved 'Ventura Proof (2026)' at 9.85s of 90.0s
+[1794849233.669] player: time-pos=10.89s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=97 | gpui frames presented=97 (11.2 fps)
+[1794849234.117] proof: server /Sessions -> client="ztriton" device="macOS" NowPlayingItem="Ventura Proof (2026)" PositionTicks=108546666 PlayMethod="Transcode" TranscodingInfo: 1280x720 "h264" "aac" bitrate=1721440 reasons=["VideoResolutionNotSupported"]
+[1794849234.734] player: time-pos=12.02s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=110 | gpui frames presented=110 (12.2 fps)
+[1794849235.801] player: time-pos=13.02s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=122 | gpui frames presented=122 (11.2 fps)
+[1794849236.867] player: time-pos=14.15s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=135 | gpui frames presented=135 (12.2 fps)
+[1794849237.199] proof: seeking to 60% = 54.0s
+[1794849237.917] player: time-pos=54.49s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=146 | gpui frames presented=146 (10.5 fps)
+[1794849238.948] player: time-pos=55.59s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=159 | gpui frames presented=158 (11.6 fps)
+[1794849240.009] player: time-pos=56.62s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=171 | gpui frames presented=171 (12.3 fps)
+[1794849241.076] player: time-pos=57.65s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=183 | gpui frames presented=183 (11.2 fps)
+[1794849242.115] player: time-pos=58.69s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=195 | gpui frames presented=195 (11.6 fps)
+[1794849243.176] player: time-pos=59.79s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=208 | gpui frames presented=208 (12.3 fps)
+[1794849243.177] resume: saved 'Ventura Proof (2026)' at 59.79s of 90.0s
+[1794849243.606] proof: dumped presented NV12 surface 1280x720 (mpv frame seq 213) at time-pos 60.22s -> /Users/admin/ztriton/proof/playback/gpui_frame_2.png
+[1794849243.607] proof: marker playing-2
+[1794849244.198] player: time-pos=60.22s / 90.0s paused=true muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=217 | gpui frames presented=217 (8.8 fps)
+[1794849245.241] player: time-pos=60.22s / 90.0s paused=true muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=217 | gpui frames presented=217 (0.0 fps)
+[1794849245.617] proof: marker paused-overlay
+[1794849246.282] player: time-pos=60.22s / 90.0s paused=true muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=217 | gpui frames presented=217 (0.0 fps)
+[1794849247.323] player: time-pos=60.22s / 90.0s paused=true muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=217 | gpui frames presented=217 (0.0 fps)
+[1794849248.365] player: time-pos=60.22s / 90.0s paused=true muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=217 | gpui frames presented=217 (0.0 fps)
+[1794849249.407] player: time-pos=60.22s / 90.0s paused=true muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=217 | gpui frames presented=217 (0.0 fps)
+[1794849250.448] player: time-pos=60.85s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=224 | gpui frames presented=223 (5.8 fps)
+[1794849251.508] player: time-pos=61.89s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=236 | gpui frames presented=236 (12.3 fps)
+[1794849252.575] player: time-pos=62.95s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 1280x720 hwdec=no | mpv frames=248 | gpui frames presented=248 (11.2 fps)
+[1794849252.948] player: quality changed to 480p · Auto for this playback, restarting at 63.29s
+[1794849253.018] bitrate: speed test measured 360 Mbps
+[1794849253.021] player: server chose Transcode (VideoResolutionNotSupported) for 480p · Auto · Auto (max 360 Mbps) -> http://192.168.64.1:8096/videos/7f531c05-8647-ca4e-ff7c-04435c42b39e/master.m3u8?… | 1 external subtitle(s), subtitle choice Some(Off)
+[1794849253.022] player: stopped the previous transcode (74414a3c77a84e6387418644cfa4eee3)
+[1794849253.636] player: time-pos=63.29s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=256 | gpui frames presented=256 (7.5 fps)
+[1794849253.638] resume: saved 'Ventura Proof (2026)' at 63.29s of 90.0s
+[1794849253.640] player: reported the restart of the Transcode stream at 63.29s
+[1794849254.657] player: time-pos=66.19s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=257 | gpui frames presented=257 (1.0 fps)
+[1794849255.725] player: time-pos=67.42s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=264 | gpui frames presented=264 (6.6 fps)
+[1794849256.792] player: time-pos=68.49s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=281 | gpui frames presented=281 (15.9 fps)
+[1794849257.859] player: time-pos=69.55s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=298 | gpui frames presented=298 (15.9 fps)
+[1794849258.927] player: time-pos=70.65s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=315 | gpui frames presented=315 (15.9 fps)
+[1794849259.992] player: time-pos=71.72s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=332 | gpui frames presented=332 (16.0 fps)
+[1794849261.058] player: time-pos=72.79s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=349 | gpui frames presented=348 (15.0 fps)
+[1794849262.125] player: time-pos=73.82s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=365 | gpui frames presented=365 (15.9 fps)
+[1794849263.193] player: time-pos=74.92s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=382 | gpui frames presented=382 (15.9 fps)
+[1794849264.258] player: time-pos=75.99s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=399 | gpui frames presented=398 (15.0 fps)
+[1794849264.260] resume: saved 'Ventura Proof (2026)' at 75.99s of 90.0s
+[1794849265.325] player: time-pos=76.99s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=415 | gpui frames presented=415 (15.9 fps)
+[1794849265.326] proof: after the quality change mpv plays 852x480 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 at 76.99s; Transcode (VideoResolutionNotSupported) · max 360 Mbps
+[1794849265.327] player: time-pos=77.05s / 90.0s paused=false muted=true codec=H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 852x480 hwdec=no | mpv frames=416 | gpui frames presented=415 (15.9 fps)
+[1794849265.329] proof: server /Sessions -> client="ztriton" device="macOS" NowPlayingItem="Ventura Proof (2026)" PositionTicks=769880000 PlayMethod="Transcode" TranscodingInfo: 853x480 "h264" "aac" bitrate=1721440 reasons=["VideoResolutionNotSupported"]
+[1794849265.329] proof: saved defaults after the in-player change: 720p · Auto
+[1794849265.332] proof: dumped presented NV12 surface 852x480 (mpv frame seq 415) at time-pos 77.05s -> /Users/admin/ztriton/proof/playback/gpui_frame_3.png
+[1794849265.333] proof: done
+[1794849265.334] resume: saved 'Ventura Proof (2026)' at 77.05s of 90.0s
+[1794849265.335] player: closing at 77.05s, reporting stop to Jellyfin
