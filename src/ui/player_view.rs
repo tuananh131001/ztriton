@@ -9,8 +9,9 @@ use gpui::{
     linear_color_stop, linear_gradient, prelude::*, px, rgba,
 };
 use std::time::{Duration, Instant};
-use ztriton::jellyfin::{Item, Jellyfin, adjacent_episodes, redact};
-use ztriton::player::{ExternalSubtitle, Player, PlayerOptions, Status, SubtitlePreference, VideoFrame};
+use ztriton::jellyfin::{Item, Jellyfin, PlayMethod, PlaybackStream, StreamIdentity, adjacent_episodes, redact};
+use ztriton::playback_settings::{Bitrate, MAXIMUM_BITRATE, MaxResolution, PlaybackSettings, format_bitrate};
+use ztriton::player::{Player, PlayerOptions, Status, SubtitlePreference, VideoFrame};
 use ztriton::preferences::Preferences;
 
 actions!(
@@ -43,6 +44,37 @@ pub struct Closed;
 /// Playback of this item stopped so `.0` can be played instead.
 pub struct PlayEpisode(pub Item);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Menu {
+    Subtitles,
+    Quality,
+}
+
+/// The stream mpv is playing and the settings it was requested with.
+struct ActiveStream {
+    identity: StreamIdentity,
+    transcode_reasons: Vec<String>,
+    max_bitrate: u64,
+}
+
+/// A report owed to the server once the new stream shows its first frame:
+/// Jellyfin records a transcode report as direct play if it arrives before
+/// mpv has requested the stream and started the transcode job.
+#[derive(Clone, Copy)]
+enum PendingReport {
+    Start,
+    Restart,
+}
+
+/// Everything worked out off the UI thread before a stream can be loaded.
+struct OpenedStream {
+    settings: PlaybackSettings,
+    subtitle: Option<SubtitlePreference>,
+    max_bitrate: u64,
+    speed_test_error: Option<anyhow::Error>,
+    stream: anyhow::Result<PlaybackStream>,
+}
+
 pub struct PlayerView {
     player: Option<Player>,
     jf: Jellyfin,
@@ -56,7 +88,14 @@ pub struct PlayerView {
     last_activity: Instant,
     error: Option<String>,
     osd: Option<(String, Instant)>,
-    subtitle_menu_open: bool,
+    open_menu: Option<Menu>,
+    /// This playback's settings: the saved defaults until changed from the
+    /// Quality menu, which never changes the saved ones. `None` until loaded.
+    settings: Option<PlaybackSettings>,
+    stream: Option<ActiveStream>,
+    pending_report: Option<PendingReport>,
+    /// Asks the server for a stream; replacing it cancels an older request.
+    stream_task: Option<gpui::Task<()>>,
     previous_episode: Option<Item>,
     next_episode: Option<Item>,
     // Stats (shown in proof mode / logged)
@@ -88,7 +127,11 @@ impl PlayerView {
             last_activity: Instant::now(),
             error: None,
             osd: None,
-            subtitle_menu_open: false,
+            open_menu: None,
+            settings: None,
+            stream: None,
+            pending_report: None,
+            stream_task: None,
             previous_episode: None,
             next_episode: None,
             presented: 0,
@@ -110,36 +153,14 @@ impl PlayerView {
                     // Fails only once the view is gone and the player is shutting down.
                     drop(tx.unbounded_send(()));
                 });
-                let url = jf.stream_url(&item.id);
                 proof_log(format!(
-                    "player: libmpv {} | loading '{}' from {} (start {:.1}s)",
+                    "player: libmpv {} | asking the server how to stream '{}' (start {:.1}s)",
                     player.property_string("mpv-version"),
                     item.name,
-                    redact(&url),
                     start
                 ));
                 this.player = Some(player);
-
-                // External subtitles must be known before loadfile so they are
-                // added (and the remembered choice applied) as the file opens.
-                cx.spawn({
-                    let jf = jf.clone();
-                    let item_id = item.id.clone();
-                    async move |this, cx| {
-                        let (subtitles, preferences) = cx
-                            .background_executor()
-                            .spawn({
-                                let jf = jf.clone();
-                                async move { (jf.external_subtitles(&item_id), Preferences::load()) }
-                            })
-                            .await;
-                        this.update(cx, |view, cx| {
-                            view.start_playback(&url, start, &jf.media_auth_header(), subtitles, preferences, cx)
-                        })
-                        .log_err();
-                    }
-                })
-                .detach();
+                this.open_stream(start, None, None, cx);
 
                 cx.spawn(async move |this, cx| {
                     while rx.next().await.is_some() {
@@ -158,24 +179,16 @@ impl PlayerView {
                     Self::load_adjacent_episodes(jf.clone(), series_id, item.id.clone(), cx);
                 }
 
-                // Jellyfin playback reporting.
-                let jf2 = jf.clone();
-                let id = item.id.clone();
-                cx.background_executor()
-                    .spawn(async move {
-                        if let Err(e) = jf2.report_start(&id, start) {
-                            log::warn!("report_start: {e}");
-                        }
-                    })
-                    .detach();
+                // Jellyfin progress reporting; the start is reported once a stream is chosen.
                 cx.spawn(async move |this, cx| {
                     let mut tick: u64 = 0;
                     loop {
                         cx.background_executor().timer(Duration::from_secs(1)).await;
                         tick += 1;
-                        let Ok(Some(st)) = this.update(cx, |v, cx| {
+                        let Ok(Some((st, stream, report_now))) = this.update(cx, |v, cx| {
                             let player = v.player.as_ref()?;
                             let position = playing_position(player, &player.status());
+                            let report_now = position.and_then(|position| Some((v.pending_report.take()?, position)));
                             let st = v.refresh_status();
                             // Saved on the UI thread so saves land in order, and the last one before quit.
                             if tick.is_multiple_of(10)
@@ -184,16 +197,42 @@ impl PlayerView {
                                 v.save_position(position, st.duration);
                             }
                             cx.notify();
-                            Some(st)
+                            // No progress for a stream that has not started: it would arrive before the start.
+                            let stream = v.stream.as_ref().filter(|_| v.pending_report.is_none()).map(|stream| stream.identity.clone());
+                            Some((st, stream, report_now))
                         }) else {
                             break;
                         };
-                        if tick.is_multiple_of(10) && st.duration > 0.0 {
+                        if let Some((report, position)) = report_now
+                            && let Some(stream) = stream.clone()
+                        {
                             let jf = jf.clone();
                             let id = item.id.clone();
                             cx.background_executor()
                                 .spawn(async move {
-                                    if let Err(e) = jf.report_progress(&id, st.position, st.paused) {
+                                    // A restart moves the server's session to the new stream.
+                                    let reported = match report {
+                                        PendingReport::Start => jf.report_start(&id, position, &stream),
+                                        PendingReport::Restart => jf.report_progress(&id, position, false, &stream),
+                                    };
+                                    match reported {
+                                        Ok(()) => proof_log(format!("player: reported {} of the {} stream at {position:.2}s", match report {
+                                            PendingReport::Start => "the start",
+                                            PendingReport::Restart => "the restart",
+                                        }, stream.method.as_str())),
+                                        Err(e) => log::warn!("playback report: {e:#}"),
+                                    }
+                                })
+                                .detach();
+                        } else if tick.is_multiple_of(10)
+                            && st.duration > 0.0
+                            && let Some(stream) = stream
+                        {
+                            let jf = jf.clone();
+                            let id = item.id.clone();
+                            cx.background_executor()
+                                .spawn(async move {
+                                    if let Err(e) = jf.report_progress(&id, st.position, st.paused, &stream) {
                                         log::warn!("report_progress: {e}");
                                     }
                                 })
@@ -222,35 +261,144 @@ impl PlayerView {
         this
     }
 
-    fn start_playback(
-        &mut self,
-        url: &str,
-        start: f64,
-        auth_header: &str,
-        subtitles: anyhow::Result<Vec<ExternalSubtitle>>,
-        preferences: anyhow::Result<Preferences>,
-        cx: &mut Context<Self>,
-    ) {
-        let subtitles = subtitles.unwrap_or_else(|e| {
-            log::warn!("external subtitles: {e:#}");
-            self.flash(format!("Couldn't load subtitles: {e}"), cx);
-            Vec::new()
+    /// Ask the server for a stream that fits the playback settings, then play
+    /// it from `start`. `change` is a Quality menu choice for this session;
+    /// `None` uses the saved settings and subtitle choice.
+    /// `measured_bitrate` is an earlier Auto speed test to reuse: a new test
+    /// would compete with the stream still downloading and under-measure.
+    fn open_stream(&mut self, start: f64, change: Option<PlaybackSettings>, measured_bitrate: Option<u64>, cx: &mut Context<Self>) {
+        let jf = self.jf.clone();
+        let item_id = self.item.id.clone();
+        // A restart keeps the subtitle on screen rather than the saved one.
+        let shown_subtitle = change.as_ref().map(|_| {
+            SubtitlePreference::from_track(self.tracks.iter().find(|t| t.kind == "sub" && t.selected))
         });
-        let preference = preferences
-            .unwrap_or_else(|e| {
-                log::warn!("preferences: {e:#}");
-                Preferences::default()
-            })
-            .subtitle;
+        self.stream_task = Some(cx.spawn(async move |this, cx| {
+            let opened = cx
+                .background_executor()
+                .spawn(async move {
+                    let (settings, subtitle) = match change {
+                        Some(settings) => (settings, shown_subtitle),
+                        None => {
+                            let preferences = Preferences::load().unwrap_or_else(|e| {
+                                log::warn!("preferences: {e:#}");
+                                Preferences::default()
+                            });
+                            (preferences.playback, preferences.subtitle)
+                        }
+                    };
+                    let (max_bitrate, speed_test_error) = match (settings.bitrate, measured_bitrate) {
+                        (Bitrate::Limit(bits_per_second), _) => (bits_per_second, None),
+                        (Bitrate::Auto, Some(bits_per_second)) => (bits_per_second, None),
+                        (Bitrate::Auto, None) => match jf.measure_bitrate() {
+                            Ok(bits_per_second) => {
+                                proof_log(format!("bitrate: speed test measured {}", format_bitrate(bits_per_second)));
+                                (bits_per_second, None)
+                            }
+                            Err(e) => (MAXIMUM_BITRATE, Some(e)),
+                        },
+                    };
+                    let stream = jf.playback_info(&item_id, &settings, max_bitrate, start);
+                    OpenedStream { settings, subtitle, max_bitrate, speed_test_error, stream }
+                })
+                .await;
+            this.update(cx, |view, cx| view.play_stream(opened, start, cx)).log_err();
+        }));
+    }
+
+    fn play_stream(&mut self, opened: OpenedStream, start: f64, cx: &mut Context<Self>) {
+        let OpenedStream { settings, subtitle, max_bitrate, speed_test_error, stream } = opened;
+        let restarting = self.stream.is_some();
+        if let Some(e) = speed_test_error {
+            log::warn!("speed test: {e:#}");
+            proof_log(format!("bitrate: speed test failed ({e:#}), using Maximum"));
+            self.flash(format!("Speed test failed, using Maximum: {e}"), cx);
+        }
+        let stream = match stream {
+            Ok(stream) => stream,
+            Err(e) => {
+                proof_log(format!("player: the server chose no stream: {e:#}"));
+                if restarting {
+                    // The previous stream keeps playing.
+                    self.flash(format!("Couldn't change quality: {e}"), cx);
+                } else {
+                    self.error = Some(format!("{e:#}"));
+                    cx.notify();
+                }
+                return;
+            }
+        };
         proof_log(format!(
-            "player: {} external subtitle(s), remembered choice {preference:?}",
-            subtitles.len()
+            "player: server chose {}{} for {} · {} · {}{} (max {}) -> {} | {} external subtitle(s), subtitle choice {subtitle:?}",
+            stream.identity.method.as_str(),
+            if stream.transcode_reasons.is_empty() { String::new() } else { format!(" ({})", stream.transcode_reasons.join(", ")) },
+            settings.resolution.label(),
+            settings.bitrate.label(),
+            settings.compatibility.label(),
+            if settings.force_hdr_transcode { " · force SDR" } else { "" },
+            format_bitrate(max_bitrate),
+            redact(&stream.url),
+            stream.subtitles.len()
         ));
         let Some(player) = &self.player else { return };
-        if let Err(e) = player.load_with_subtitles(url, start, &[auth_header.to_string()], subtitles, preference) {
+        if let Err(e) = player.load_with_subtitles(&stream.url, start, &[self.jf.media_auth_header()], stream.subtitles, subtitle) {
             self.error = Some(format!("{e:#}"));
             cx.notify();
+            return;
         }
+        // Only now: after a failed restart the menu must keep showing what still plays.
+        self.settings = Some(settings);
+        let previous = self.stream.replace(ActiveStream {
+            identity: stream.identity.clone(),
+            transcode_reasons: stream.transcode_reasons,
+            max_bitrate,
+        });
+        self.pending_report = Some(match self.pending_report {
+            // Restarted before the first stream ever started: its start is still owed.
+            Some(PendingReport::Start) => PendingReport::Start,
+            _ if previous.is_none() => PendingReport::Start,
+            _ => PendingReport::Restart,
+        });
+        if let Some(ActiveStream { identity: previous, .. }) = previous
+            && previous.method == PlayMethod::Transcode
+            && let Some(play_session_id) = previous.play_session_id
+            && stream.identity.play_session_id.as_deref() != Some(play_session_id.as_str())
+        {
+            let jf = self.jf.clone();
+            cx.background_executor()
+                .spawn(async move {
+                    match jf.stop_transcoding(&play_session_id) {
+                        Ok(()) => proof_log(format!("player: stopped the previous transcode ({play_session_id})")),
+                        Err(e) => log::warn!("stopping the previous transcode: {e:#}"),
+                    }
+                })
+                .detach();
+        }
+        cx.notify();
+    }
+
+    /// Restart the stream at the current position with new settings, for this playback only.
+    fn change_quality(&mut self, settings: PlaybackSettings, cx: &mut Context<Self>) {
+        self.open_menu = None;
+        if self.settings.as_ref() == Some(&settings) {
+            cx.notify();
+            return;
+        }
+        let Some(player) = &self.player else { return };
+        let position = playing_position(player, &player.status()).unwrap_or(self.start);
+        self.start = position;
+        proof_log(format!(
+            "player: quality changed to {} · {} for this playback, restarting at {position:.2}s",
+            settings.resolution.label(),
+            settings.bitrate.label()
+        ));
+        self.flash(format!("Quality: {} · {}", settings.resolution.label(), settings.bitrate.label()), cx);
+        let measured_bitrate = self
+            .stream
+            .as_ref()
+            .filter(|_| settings.bitrate == Bitrate::Auto && self.settings.as_ref().is_some_and(|current| current.bitrate == Bitrate::Auto))
+            .map(|stream| stream.max_bitrate);
+        self.open_stream(position, Some(settings), measured_bitrate, cx);
     }
 
     fn load_adjacent_episodes(jf: Jellyfin, series_id: String, item_id: String, cx: &mut Context<Self>) {
@@ -307,7 +455,7 @@ impl PlayerView {
 
     fn select_subtitle(&mut self, id: Option<i64>, cx: &mut Context<Self>) {
         let Some(player) = &self.player else { return };
-        self.subtitle_menu_open = false;
+        self.open_menu = None;
         if let Err(e) = player.select_subtitle(id) {
             self.flash(format!("{e:#}"), cx);
             return;
@@ -373,6 +521,82 @@ impl PlayerView {
             .into_any_element()
     }
 
+    fn toggle_menu(&mut self, menu: Menu) {
+        self.open_menu = if self.open_menu == Some(menu) { None } else { Some(menu) };
+    }
+
+    /// "Direct Play · max 23 Mbps" or "Transcode (VideoResolutionNotSupported) · max 4 Mbps".
+    fn stream_description(&self) -> Option<String> {
+        let stream = self.stream.as_ref()?;
+        let method = match stream.identity.method {
+            PlayMethod::DirectPlay => "Direct Play".to_string(),
+            PlayMethod::DirectStream => "Direct Stream".to_string(),
+            PlayMethod::Transcode if stream.transcode_reasons.is_empty() => "Transcode".to_string(),
+            PlayMethod::Transcode => format!("Transcode ({})", stream.transcode_reasons.join(", ")),
+        };
+        Some(format!("{method} · max {}", format_bitrate(stream.max_bitrate)))
+    }
+
+    fn quality_menu(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(current) = self.settings.clone() else {
+            return div().into_any_element();
+        };
+        let option = |id: (&'static str, usize), label: String, chosen: bool, settings: PlaybackSettings| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1()
+                .flex()
+                .gap_2()
+                .cursor_pointer()
+                .hover(|s| s.bg(surface_hi()))
+                .child(div().w(px(14.)).text_color(accent()).child(if chosen { "✓" } else { "" }))
+                .child(label)
+                .on_click(cx.listener(move |this, _, _, cx| this.change_quality(settings.clone(), cx)))
+        };
+        let column = |title: &'static str| {
+            div()
+                .flex()
+                .flex_col()
+                .min_w(px(150.))
+                .child(div().px_3().pb_1().text_xs().text_color(text_dim()).child(title))
+        };
+        let resolutions = column("Resolution").children(MaxResolution::ALL.into_iter().enumerate().map(|(index, resolution)| {
+            let settings = PlaybackSettings { resolution, ..current.clone() };
+            option(("quality-resolution", index), resolution.label().to_string(), resolution == current.resolution, settings)
+        }));
+        let bitrates = column("Bitrate").children(Bitrate::ALL.into_iter().enumerate().map(|(index, bitrate)| {
+            let settings = PlaybackSettings { bitrate, ..current.clone() };
+            option(("quality-bitrate", index), bitrate.label(), bitrate == current.bitrate, settings)
+        }));
+        div()
+            .id("quality-menu")
+            .absolute()
+            .bottom(px(30.))
+            .left_0()
+            .py_2()
+            .rounded_lg()
+            .bg(surface())
+            .border_1()
+            .border_color(surface_hi())
+            .text_sm()
+            .text_color(text())
+            .occlude()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(div().flex().child(resolutions).child(bitrates))
+            .child(
+                div()
+                    .px_3()
+                    .pt_1()
+                    .text_xs()
+                    .text_color(text_dim())
+                    .child("Applies to this video only; defaults are in Settings."),
+            )
+            .into_any_element()
+    }
+
     fn refresh_status(&mut self) -> Status {
         if let Some(p) = &self.player {
             self.status = p.status();
@@ -434,21 +658,7 @@ impl PlayerView {
             // Server-side confirmation via /Sessions.
             if let Ok(jf) = this.update(cx, |v, _| v.jf.clone()) {
                 let res = exec.spawn(async move { jf.sessions_json() }).await;
-                match res {
-                    Ok(json) => {
-                        let s = serde_json::to_string_pretty(&json).unwrap_or_default();
-                        std::fs::write(crate::proof_dir().join("sessions.json"), &s).log_err();
-                        let field = |pointer: &str| json.pointer(&format!("/0{pointer}")).cloned().unwrap_or_default();
-                        proof_log(format!(
-                            "proof: server /Sessions -> client={} device={} NowPlayingItem={} PositionTicks={}",
-                            field("/Client"),
-                            field("/DeviceName"),
-                            field("/NowPlayingItem/Name"),
-                            field("/PlayState/PositionTicks")
-                        ));
-                    }
-                    Err(e) => proof_log(format!("proof: sessions query failed: {e}")),
-                }
+                log_server_session(res, "sessions.json");
             }
             timer(t(3)).await;
             this.update(cx, |v, cx| {
@@ -482,6 +692,40 @@ impl PlayerView {
             })
             .log_err();
             timer(t(3)).await;
+            // In-player quality change: same spot, this playback only.
+            this.update(cx, |v, cx| {
+                if let Some(settings) = v.settings.clone() {
+                    let resolution = MaxResolution::Sd480;
+                    v.change_quality(PlaybackSettings { resolution, ..settings }, cx);
+                }
+            })
+            .log_err();
+            timer(t(12)).await;
+            this.update(cx, |v, _| {
+                let status = v.refresh_status();
+                proof_log(format!(
+                    "proof: after the quality change mpv plays {}x{} {} at {:.2}s; {}",
+                    status.width,
+                    status.height,
+                    status.video_codec,
+                    status.position,
+                    v.stream_description().unwrap_or_default()
+                ));
+            })
+            .log_err();
+            if let Ok(jf) = this.update(cx, |v, _| v.jf.clone()) {
+                let res = exec.spawn(async move { jf.sessions_json() }).await;
+                log_server_session(res, "sessions_after_quality_change.json");
+            }
+            match Preferences::load() {
+                Ok(preferences) => proof_log(format!(
+                    "proof: saved defaults after the in-player change: {} · {}",
+                    preferences.playback.resolution.label(),
+                    preferences.playback.bitrate.label()
+                )),
+                Err(e) => proof_log(format!("proof: could not read preferences: {e:#}")),
+            }
+            this.update(cx, |v, _| v.dump_presented_frame("gpui_frame_3.png")).log_err();
             proof_log("proof: done");
             if std::env::var("ZTRITON_PROOF_QUIT").is_ok() {
                 this.update(cx, |v, cx| v.close(cx)).log_err();
@@ -604,7 +848,7 @@ impl PlayerView {
     fn shutdown(&mut self, cx: &mut Context<Self>) -> Option<gpui::Task<()>> {
         let p = self.player.take()?;
         let status = p.status();
-        // Closed before the first frame: the start report already made the
+        // Closed before the first frame: the stop report below makes the
         // server's copy newer (and 0 if under its minimum), so re-save `start`.
         let pos = playing_position(&p, &status).unwrap_or(self.start);
         p.stop(); // cheap async command: audio/video stop right now
@@ -612,9 +856,12 @@ impl PlayerView {
         proof_log(format!("player: closing at {pos:.2}s, reporting stop to Jellyfin"));
         let jf = self.jf.clone();
         let id = self.item.id.clone();
+        // Dropping the request task stops a stream that has not started yet.
+        self.stream_task = None;
+        let stream = self.stream.as_ref().map(|stream| stream.identity.clone()).unwrap_or_default();
         Some(cx.background_executor().spawn(async move {
             // Report before tearing mpv down: on quit GPUI waits only ~100 ms for this task.
-            if let Err(e) = jf.report_stopped(&id, pos) {
+            if let Err(e) = jf.report_stopped(&id, pos, &stream) {
                 log::warn!("report_stopped: {e}");
             }
             drop(p); // joins mpv threads, destroys the core
@@ -688,11 +935,11 @@ impl PlayerView {
             .justify_between()
             // The menu is positioned outside its parent's bounds, so mouse-down-out on the
             // parent would fire for clicks on the menu itself; dismiss via a backdrop instead.
-            .when(self.subtitle_menu_open, |d| {
+            .when(self.open_menu.is_some(), |d| {
                 d.child(div().absolute().top_0().left_0().size_full().on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| {
-                        this.subtitle_menu_open = false;
+                        this.open_menu = None;
                         cx.notify();
                     }),
                 ))
@@ -844,18 +1091,43 @@ impl PlayerView {
                                             .px_3()
                                             .py_1()
                                             .rounded_md()
-                                            .bg(if self.subtitle_menu_open { surface_hi() } else { rgba(0xffffff1a).into() })
+                                            .bg(if self.open_menu == Some(Menu::Subtitles) { surface_hi() } else { rgba(0xffffff1a).into() })
                                             .cursor_pointer()
                                             .child(format!("CC {sub}"))
                                             .on_click(cx.listener(|this, _, _, cx| {
-                                                this.subtitle_menu_open = !this.subtitle_menu_open;
+                                                this.toggle_menu(Menu::Subtitles);
                                                 this.last_activity = Instant::now();
                                                 cx.notify();
                                             })),
                                     )
-                                    .when(self.subtitle_menu_open, |d| d.child(self.subtitle_menu(cx))),
+                                    .when(self.open_menu == Some(Menu::Subtitles), |d| d.child(self.subtitle_menu(cx))),
+                            )
+                            .child(
+                                div()
+                                    .relative()
+                                    .child(
+                                        div()
+                                            .id("quality")
+                                            .occlude()
+                                            .px_3()
+                                            .py_1()
+                                            .rounded_md()
+                                            .bg(if self.open_menu == Some(Menu::Quality) { surface_hi() } else { rgba(0xffffff1a).into() })
+                                            .cursor_pointer()
+                                            .child(match &self.settings {
+                                                Some(settings) => format!("Quality: {} · {}", settings.resolution.label(), settings.bitrate.label()),
+                                                None => "Quality".to_string(),
+                                            })
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.toggle_menu(Menu::Quality);
+                                                this.last_activity = Instant::now();
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .when(self.open_menu == Some(Menu::Quality), |d| d.child(self.quality_menu(cx))),
                             )
                             .child(div().flex_grow())
+                            .when_some(self.stream_description(), |d, description| d.child(description))
                             .child(format!(
                                 "{} · {}x{} · {} · {:.0} fps",
                                 if st.video_codec.is_empty() { "…".to_string() } else { st.video_codec.split(" / ").next().unwrap_or("").to_string() },
@@ -874,7 +1146,38 @@ impl PlayerView {
 /// file may know its duration yet still report 0 instead of the `start` it is
 /// seeking to, and saving that would erase the resume position.
 fn playing_position(player: &Player, status: &Status) -> Option<f64> {
-    (status.duration > 0.0 && player.frames_rendered() > 0).then_some(status.position)
+    (status.duration > 0.0 && player.frames_of_current_file() > 0).then_some(status.position)
+}
+
+/// Write the server's /Sessions answer to `file` in the proof directory and log
+/// how the server says it is streaming.
+fn log_server_session(sessions: anyhow::Result<serde_json::Value>, file: &str) {
+    let json = match sessions {
+        Ok(json) => json,
+        Err(e) => {
+            proof_log(format!("proof: sessions query failed: {e}"));
+            return;
+        }
+    };
+    match serde_json::to_string_pretty(&json) {
+        Ok(pretty) => std::fs::write(crate::proof_dir().join(file), pretty).log_err(),
+        Err(e) => log::warn!("sessions json: {e}"),
+    }
+    let field = |pointer: &str| json.pointer(&format!("/0{pointer}")).cloned().unwrap_or_default();
+    proof_log(format!(
+        "proof: server /Sessions -> client={} device={} NowPlayingItem={} PositionTicks={} PlayMethod={} TranscodingInfo: {}x{} {} {} bitrate={} reasons={}",
+        field("/Client"),
+        field("/DeviceName"),
+        field("/NowPlayingItem/Name"),
+        field("/PlayState/PositionTicks"),
+        field("/PlayState/PlayMethod"),
+        field("/TranscodingInfo/Width"),
+        field("/TranscodingInfo/Height"),
+        field("/TranscodingInfo/VideoCodec"),
+        field("/TranscodingInfo/AudioCodec"),
+        field("/TranscodingInfo/Bitrate"),
+        field("/TranscodingInfo/TranscodeReasons")
+    ));
 }
 
 fn track_label(p: &Player, kind: &str, name: &str) -> String {
@@ -899,7 +1202,7 @@ impl Render for PlayerView {
         }
 
         let show_controls = self.status.paused
-            || self.subtitle_menu_open
+            || self.open_menu.is_some()
             || self.last_activity.elapsed() < Duration::from_secs(3) || self.frame.is_none();
         let osd = self
             .osd

@@ -194,6 +194,10 @@ type FrameCallback = Arc<dyn Fn() + Send + Sync>;
 struct Shared {
     latest: Mutex<Option<Arc<VideoFrame>>>,
     frames_rendered: AtomicU64,
+    /// `frames_rendered` when the current file loaded, or `u64::MAX` from the
+    /// moment another file is requested until it has loaded, so frames of the
+    /// previous file never count as the new one playing.
+    frames_before_current_file: AtomicU64,
     /// Display size of the video, packed `(w << 32) | h`; written by the event
     /// thread, read by the render thread (which may not call client APIs).
     dsize: AtomicU64,
@@ -336,6 +340,7 @@ impl Player {
         let shared = Arc::new(Shared {
             latest: Mutex::new(None),
             frames_rendered: AtomicU64::new(0),
+            frames_before_current_file: AtomicU64::new(0),
             dsize: AtomicU64::new(0),
             status: Mutex::new(Status::default()),
             tracks: Mutex::new(Vec::new()),
@@ -422,6 +427,7 @@ impl Player {
             opts.push(format!("http-header-fields=%{}%{v}", v.len()));
         }
         let per_file = opts.join(",");
+        self.shared.frames_before_current_file.store(u64::MAX, Ordering::Release);
         // mpv >= 0.38: loadfile <url> <flags> <index> <options>
         self.mpv
             .command("loadfile", &[url, "replace", "-1", &per_file])
@@ -453,6 +459,14 @@ impl Player {
     /// Number of frames rendered since creation.
     pub fn frames_rendered(&self) -> u64 {
         self.shared.frames_rendered.load(Ordering::Relaxed)
+    }
+
+    /// Frames rendered from the file loaded last; 0 until it has loaded.
+    pub fn frames_of_current_file(&self) -> u64 {
+        match self.shared.frames_before_current_file.load(Ordering::Acquire) {
+            u64::MAX => 0,
+            before => self.frames_rendered().saturating_sub(before),
+        }
     }
 
     /// Timestamped log of notable mpv events.
@@ -683,6 +697,8 @@ fn event_loop(mpv: Arc<Mpv>, shared: Arc<Shared>) {
                 let codec: String = mpv.get_property("video-codec").unwrap_or_default();
                 let dur: f64 = mpv.get_property("duration").unwrap_or(0.0);
                 shared.log_event(format!("file-loaded: {w}x{h} codec={codec} duration={dur:.1}s"));
+                let frames = shared.frames_rendered.load(Ordering::Relaxed);
+                shared.frames_before_current_file.store(frames, Ordering::Release);
                 apply_pending_subtitles(&mpv, &shared);
             }
             Ok(Event::VideoReconfig) => {

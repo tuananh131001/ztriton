@@ -7,7 +7,7 @@ use gpui::{
     WindowBounds, WindowOptions, point, px, size,
 };
 use std::path::PathBuf;
-use ui::app::{Back, OpenSearch, Quit, SignOut, ToggleFullscreen, ZtritonApp};
+use ui::app::{Back, OpenSearch, OpenSettings, Quit, SignOut, ToggleFullscreen, ZtritonApp};
 
 /// `ZTRITON_PROOF=1`: scripted run that records verification artifacts.
 pub fn proof_mode() -> bool {
@@ -60,6 +60,7 @@ fn main() {
             KeyBinding::new("cmd-q", Quit, None),
             KeyBinding::new("cmd-ctrl-f", ToggleFullscreen, None),
             KeyBinding::new("cmd-f", OpenSearch, Some("Ztriton")),
+            KeyBinding::new("cmd-,", OpenSettings, Some("Ztriton")),
             KeyBinding::new("escape", Back, Some("Ztriton")),
             KeyBinding::new("backspace", Back, Some("Ztriton")),
         ]);
@@ -69,6 +70,7 @@ fn main() {
         cx.set_menus(vec![Menu {
             name: "ztriton".into(),
             items: vec![
+                MenuItem::action("Settings…", OpenSettings),
                 MenuItem::action("Search…", OpenSearch),
                 MenuItem::action("Sign Out", SignOut),
                 MenuItem::separator(),

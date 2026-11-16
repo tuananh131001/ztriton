@@ -17,6 +17,25 @@ A native macOS Jellyfin client built with GPUI, with playback through libmpv.
   video on the server; the chosen subtitle is remembered.
 - Playback resumes where it was left, even for watches too short for
   Jellyfin to save, and progress is reported back to the server.
+- Playback settings (`⌘,`, the **Settings** button on Home, or
+  ztriton › Settings…) tell the server what this Mac can handle, and the
+  server sends the file as-is or converts it on the fly (transcodes):
+  - **Resolution**: the largest picture to accept (Max, 4K … 360p); bigger
+    videos are downscaled by the server.
+  - **Bitrate**: the most data per second to accept. **Auto** (the default)
+    runs a quick speed test before each play and uses the measured speed;
+    **Maximum** is 360 Mbps, effectively no limit.
+  - **Compatibility**: **Auto** claims what the player plays natively,
+    **Compatible** only H.264 with AAC audio, **Direct Play** anything (the
+    format is never converted), **Custom** your own container and codec
+    lists.
+  - **Force HDR/DV transcode** converts HDR and Dolby Vision video to
+    regular video, for when colors look wrong.
+
+  All four go to the server in one request when you press Play. The
+  player's **Quality** menu changes resolution or bitrate for the current
+  video only, restarting the stream at the same spot; saved settings stay
+  as they are.
 
 ## Requirements
 
@@ -63,12 +82,13 @@ preferences and resume positions are stored in
 | `m` | Mute |
 | `a` | Cycle audio track |
 | `s` | Cycle subtitles (or click **CC** to pick one) |
+| — | Click **Quality** to change resolution or bitrate for this video |
 | `p` / `n` | Previous / next episode (or click ⏮ ⏭) |
 | `f` | Fullscreen |
 | `esc` | Close player |
 
 `⌃⌘F` toggles full screen anywhere in the app, as does the button in the
-top-right corner. Outside the player, `esc` or `⌫` goes back.
+top-right corner. `⌘,` opens Settings. Outside the player, `esc` or `⌫` goes back.
 
 Verification screenshots, logs and benchmark results are written to `proof/`
 (git-ignored).

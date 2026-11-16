@@ -1,6 +1,7 @@
 //! Playback preferences remembered across sessions, stored as JSON in
 //! [`crate::jellyfin::config_dir`].
 
+use crate::playback_settings::PlaybackSettings;
 use crate::player::SubtitlePreference;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,9 @@ pub struct Preferences {
     /// Last subtitle choice; `None` until the user picks one.
     #[serde(default)]
     pub subtitle: Option<SubtitlePreference>,
+    /// Resolution, bitrate, compatibility and HDR settings sent to the server on play.
+    #[serde(default)]
+    pub playback: PlaybackSettings,
 }
 
 fn path() -> PathBuf {
@@ -44,11 +48,20 @@ impl Preferences {
 
     /// Update only the subtitle choice, keeping other saved settings.
     pub fn save_subtitle(subtitle: SubtitlePreference) -> Result<()> {
+        Self::update(|preferences| preferences.subtitle = Some(subtitle))
+    }
+
+    /// Update only the playback settings, keeping other saved settings.
+    pub fn save_playback(playback: PlaybackSettings) -> Result<()> {
+        Self::update(|preferences| preferences.playback = playback)
+    }
+
+    fn update(change: impl FnOnce(&mut Self)) -> Result<()> {
         let mut preferences = Self::load().unwrap_or_else(|e| {
             log::warn!("ignoring unreadable preferences: {e:#}");
             Self::default()
         });
-        preferences.subtitle = Some(subtitle);
+        change(&mut preferences);
         preferences.save()
     }
 }
@@ -61,11 +74,16 @@ mod tests {
     fn serializes_subtitle_choice() -> Result<()> {
         let preferences = Preferences {
             subtitle: Some(SubtitlePreference::Track { language: "vie".into(), title: "Vietnamese".into() }),
+            playback: PlaybackSettings {
+                resolution: crate::playback_settings::MaxResolution::Hd720,
+                ..Default::default()
+            },
         };
         let json = serde_json::to_string(&preferences)?;
         assert_eq!(serde_json::from_str::<Preferences>(&json)?, preferences);
         let off: Preferences = serde_json::from_str(r#"{"subtitle":{"kind":"off"}}"#)?;
         assert_eq!(off.subtitle, Some(SubtitlePreference::Off));
+        assert_eq!(off.playback, PlaybackSettings::default());
         assert_eq!(serde_json::from_str::<Preferences>("{}")?, Preferences::default());
         Ok(())
     }

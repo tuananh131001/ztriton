@@ -4,5 +4,6 @@ mod gpu_video;
 pub mod jellyfin;
 pub mod player;
 pub mod keychain;
+pub mod playback_settings;
 pub mod preferences;
 pub mod resume;

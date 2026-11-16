@@ -201,6 +201,68 @@ struct MediaSource {
     id: String,
     #[serde(default)]
     media_streams: Vec<MediaStream>,
+    #[serde(default)]
+    supports_direct_play: bool,
+    #[serde(default)]
+    supports_direct_stream: bool,
+    #[serde(default)]
+    transcoding_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct PlaybackInfoResponse {
+    #[serde(default)]
+    media_sources: Vec<MediaSource>,
+    #[serde(default)]
+    play_session_id: Option<String>,
+}
+
+/// How the server delivers a stream, as Jellyfin names it in playback reports.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlayMethod {
+    /// The file as-is.
+    #[default]
+    DirectPlay,
+    /// The file's streams as-is, possibly in another container.
+    DirectStream,
+    /// Converted on the fly by the server.
+    Transcode,
+}
+
+impl PlayMethod {
+    /// Jellyfin's name for the method.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DirectPlay => "DirectPlay",
+            Self::DirectStream => "DirectStream",
+            Self::Transcode => "Transcode",
+        }
+    }
+}
+
+/// Which server-side stream playback reports refer to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StreamIdentity {
+    /// How the stream is delivered.
+    pub method: PlayMethod,
+    /// The media source (file version) being played.
+    pub media_source_id: Option<String>,
+    /// The server's id for this play, which also names its transcode job.
+    pub play_session_id: Option<String>,
+}
+
+/// The stream the server chose for the device's playback settings.
+#[derive(Clone, Debug)]
+pub struct PlaybackStream {
+    /// URL for mpv, without credentials (auth goes via [`Jellyfin::media_auth_header`]).
+    pub url: String,
+    /// What playback reports must name.
+    pub identity: StreamIdentity,
+    /// Why the server converts the file (e.g. `"VideoCodecNotSupported"`); empty for direct play.
+    pub transcode_reasons: Vec<String>,
+    /// Subtitles mpv must load separately from the stream.
+    pub subtitles: Vec<crate::player::ExternalSubtitle>,
 }
 
 #[derive(Deserialize)]
@@ -242,6 +304,10 @@ struct PlaybackReport<'a> {
     is_paused: bool,
     play_method: &'a str,
     can_seek: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    media_source_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    play_session_id: Option<&'a str>,
 }
 
 /// Seconds to Jellyfin ticks (100 ns).
@@ -342,6 +408,16 @@ impl Jellyfin {
             .set("Authorization", &self.auth())
             .call()
             .map_err(|e| anyhow!("GET {path_and_query}: {e}"))?
+            .into_json()
+            .map_err(Into::into)
+    }
+
+    fn post_for_json<T: for<'de> Deserialize<'de>>(&self, path_and_query: &str, body: serde_json::Value) -> Result<T> {
+        self.agent
+            .post(&format!("{}{}", self.base, path_and_query))
+            .set("Authorization", &self.auth())
+            .send_json(body)
+            .map_err(|e| anyhow!("POST {path_and_query}: {e}"))?
             .into_json()
             .map_err(Into::into)
     }
@@ -492,10 +568,17 @@ impl Jellyfin {
         let Some(source) = item.media_sources.into_iter().next() else {
             return Ok(Vec::new());
         };
-        Ok(source
+        Ok(self.subtitle_files(item_id, &source, false))
+    }
+
+    /// Subtitle tracks of `source` that mpv must load as separate files: the
+    /// sidecar files, plus the embedded text tracks when `embedded_too` (a
+    /// transcoded stream carries no subtitles, so the server extracts them).
+    fn subtitle_files(&self, item_id: &str, source: &MediaSource, embedded_too: bool) -> Vec<crate::player::ExternalSubtitle> {
+        source
             .media_streams
-            .into_iter()
-            .filter(|s| s.kind == "Subtitle" && s.is_external && s.supports_external_stream)
+            .iter()
+            .filter(|s| s.kind == "Subtitle" && s.supports_external_stream && (s.is_external || embedded_too))
             .map(|s| {
                 // Keep text formats as-is (ASS styling); anything else Jellyfin converts to SRT.
                 let format = match s.codec.as_deref() {
@@ -504,7 +587,6 @@ impl Jellyfin {
                     Some("webvtt" | "vtt") => "vtt",
                     _ => "srt",
                 };
-                let language = s.language.unwrap_or_default();
                 crate::player::ExternalSubtitle {
                     url: format!(
                         "{}/Videos/{}/{}/Subtitles/{}/0/Stream.{format}",
@@ -515,44 +597,175 @@ impl Jellyfin {
                     ),
                     title: s
                         .display_title
+                        .clone()
                         .filter(|t| !t.is_empty())
                         .unwrap_or_else(|| format!("Subtitle {}", s.index)),
-                    language,
+                    language: s.language.clone().unwrap_or_default(),
                 }
             })
-            .collect())
+            .collect()
     }
 
-    /// Tell the server playback started at `pos` seconds.
-    pub fn report_start(&self, item_id: &str, pos: f64) -> Result<()> {
-        self.post_json("/Sessions/Playing", self.report(item_id, pos, false))
-    }
-
-    /// Report the current position and pause state.
-    pub fn report_progress(&self, item_id: &str, pos: f64, paused: bool) -> Result<()> {
-        self.post_json("/Sessions/Playing/Progress", self.report(item_id, pos, paused))
-    }
-
-    /// Tell the server playback stopped at `pos` seconds.
-    pub fn report_stopped(&self, item_id: &str, pos: f64) -> Result<()> {
-        self.post_json("/Sessions/Playing/Stopped", self.report(item_id, pos, false))
-    }
-
-    fn report(&self, item_id: &str, pos: f64, paused: bool) -> serde_json::Value {
-        serde_json::to_value(PlaybackReport {
-            item_id,
-            position_ticks: secs_to_ticks(pos),
-            is_paused: paused,
-            play_method: "DirectPlay",
-            can_seek: true,
+    /// Send the device's playback settings to the server in one request
+    /// (POST /Items/{id}/PlaybackInfo) and return the stream it chose: the file
+    /// as-is, or a transcode that fits `settings` and `max_bitrate`.
+    pub fn playback_info(
+        &self,
+        item_id: &str,
+        settings: &crate::playback_settings::PlaybackSettings,
+        max_bitrate: u64,
+        start_secs: f64,
+    ) -> Result<PlaybackStream> {
+        let response: PlaybackInfoResponse = self.post_for_json(
+            &format!("/Items/{}/PlaybackInfo?userId={}", enc(item_id), self.user_id),
+            serde_json::json!({
+                "UserId": self.user_id,
+                "MaxStreamingBitrate": max_bitrate,
+                "StartTimeTicks": secs_to_ticks(start_secs),
+                "DeviceProfile": settings.device_profile(max_bitrate),
+                "EnableDirectPlay": true,
+                "EnableDirectStream": true,
+                "EnableTranscoding": true,
+                "AllowVideoStreamCopy": true,
+                "AllowAudioStreamCopy": true,
+                "AutoOpenLiveStream": true,
+            }),
+        )?;
+        let source = response
+            .media_sources
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("the server offered no media source for this item"))?;
+        let (method, url) = if source.supports_direct_play || source.supports_direct_stream {
+            let method = if source.supports_direct_play { PlayMethod::DirectPlay } else { PlayMethod::DirectStream };
+            let mut url = format!("{}&MediaSourceId={}", self.stream_url(item_id), enc(&source.id));
+            if let Some(play_session_id) = &response.play_session_id {
+                url.push_str(&format!("&PlaySessionId={}", enc(play_session_id)));
+            }
+            (method, url)
+        } else if let Some(transcoding_url) = &source.transcoding_url {
+            (PlayMethod::Transcode, format!("{}{}", self.base, without_credentials(transcoding_url)))
+        } else {
+            return Err(anyhow!("the server can neither send this video as-is nor convert it for these playback settings"));
+        };
+        let transcode_reasons = source
+            .transcoding_url
+            .as_deref()
+            .filter(|_| method == PlayMethod::Transcode)
+            .and_then(|url| query_value(url, "TranscodeReasons"))
+            .map(|reasons| reasons.split(',').map(str::to_string).collect())
+            .unwrap_or_default();
+        let subtitles = self.subtitle_files(item_id, &source, method == PlayMethod::Transcode);
+        Ok(PlaybackStream {
+            url,
+            identity: StreamIdentity {
+                method,
+                media_source_id: Some(source.id),
+                play_session_id: response.play_session_id,
+            },
+            transcode_reasons,
+            subtitles,
         })
-        .expect("serializable")
+    }
+
+    /// Download speed to the server in bits per second, measured by fetching
+    /// test data (GET /Playback/BitrateTest) until a download lasts long enough
+    /// to be representative.
+    pub fn measure_bitrate(&self) -> Result<u64> {
+        let mut measured = 0;
+        for size in [500_000u64, 1_000_000, 3_000_000, 10_000_000] {
+            let started = std::time::Instant::now();
+            let response = self
+                .agent
+                .get(&format!("{}/Playback/BitrateTest?size={size}", self.base))
+                .set("Authorization", &self.auth())
+                .call()
+                .map_err(|e| anyhow!("speed test: {e}"))?;
+            let received = std::io::copy(&mut response.into_reader(), &mut std::io::sink())?;
+            let elapsed = started.elapsed().as_secs_f64().max(0.001);
+            if received == 0 {
+                return Err(anyhow!("speed test: the server sent no data"));
+            }
+            measured = (received as f64 * 8.0 / elapsed) as u64;
+            // Short downloads are dominated by latency and underestimate the speed.
+            if elapsed >= 1.0 {
+                break;
+            }
+        }
+        Ok(measured.min(crate::playback_settings::MAXIMUM_BITRATE))
+    }
+
+    /// Stop the server's transcode for `play_session_id` (DELETE /Videos/ActiveEncodings).
+    pub fn stop_transcoding(&self, play_session_id: &str) -> Result<()> {
+        let path = format!(
+            "/Videos/ActiveEncodings?deviceId={}&playSessionId={}",
+            enc(&self.device_id),
+            enc(play_session_id)
+        );
+        self.agent
+            .delete(&format!("{}{path}", self.base))
+            .set("Authorization", &self.auth())
+            .call()
+            .map(drop)
+            .map_err(|e| anyhow!("DELETE {path}: {e}"))
+    }
+
+    /// Tell the server playback of `stream` started at `pos` seconds.
+    pub fn report_start(&self, item_id: &str, pos: f64, stream: &StreamIdentity) -> Result<()> {
+        self.post_json("/Sessions/Playing", report(item_id, pos, false, stream)?)
+    }
+
+    /// Report the current position, pause state and stream.
+    pub fn report_progress(&self, item_id: &str, pos: f64, paused: bool, stream: &StreamIdentity) -> Result<()> {
+        self.post_json("/Sessions/Playing/Progress", report(item_id, pos, paused, stream)?)
+    }
+
+    /// Tell the server playback stopped at `pos` seconds, which also ends its transcode.
+    pub fn report_stopped(&self, item_id: &str, pos: f64, stream: &StreamIdentity) -> Result<()> {
+        self.post_json("/Sessions/Playing/Stopped", report(item_id, pos, false, stream)?)
     }
 
     /// Raw /Sessions JSON for this device (proof of server-side playback state).
     pub fn sessions_json(&self) -> Result<serde_json::Value> {
         self.get_json(&format!("/Sessions?deviceId={}", enc(&self.device_id)))
     }
+}
+
+fn report(item_id: &str, pos: f64, paused: bool, stream: &StreamIdentity) -> Result<serde_json::Value> {
+    Ok(serde_json::to_value(PlaybackReport {
+        item_id,
+        position_ticks: secs_to_ticks(pos),
+        is_paused: paused,
+        play_method: stream.method.as_str(),
+        can_seek: true,
+        media_source_id: stream.media_source_id.as_deref(),
+        play_session_id: stream.play_session_id.as_deref(),
+    })?)
+}
+
+fn is_credential(key: &str) -> bool {
+    matches!(key.to_ascii_lowercase().as_str(), "api_key" | "apikey" | "token")
+}
+
+/// `url` without credential query parameters: mpv sends the token in a header
+/// instead, so it never shows up in logs.
+fn without_credentials(url: &str) -> String {
+    let Some((path, query)) = url.split_once('?') else {
+        return url.to_string();
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|pair| !pair.is_empty() && !is_credential(pair.split_once('=').map_or(*pair, |(key, _)| key)))
+        .collect();
+    format!("{path}?{}", kept.join("&"))
+}
+
+/// The value of query parameter `key` (case-insensitive), percent-decoded.
+fn query_value(url: &str, key: &str) -> Option<String> {
+    let (_, query) = url.split_once('?')?;
+    url::form_urlencoded::parse(query.as_bytes())
+        .find(|(name, _)| name.eq_ignore_ascii_case(key))
+        .map(|(_, value)| value.into_owned())
 }
 
 /// Redact any api_key / ApiKey / token query parameter in a URL.
@@ -563,7 +776,7 @@ pub fn redact(url: &str) -> String {
     let q: Vec<String> = query
         .split('&')
         .map(|kv| match kv.split_once('=') {
-            Some((k, _)) if matches!(k.to_ascii_lowercase().as_str(), "api_key" | "apikey" | "token") => {
+            Some((k, _)) if is_credential(k) => {
                 format!("{k}=<redacted>")
             }
             _ => kv.to_string(),
@@ -670,6 +883,40 @@ mod tests {
         assert_eq!(item_ids(&results.episodes), ["e1", "e2"]);
         assert_eq!(results.len(), 6);
         assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn strips_credentials_from_transcoding_urls() {
+        let url = "/videos/abc/master.m3u8?&DeviceId=d&PlaySessionId=p&ApiKey=secret&api_key=x&TranscodeReasons=VideoCodecNotSupported%2CAudioCodecNotSupported";
+        let stripped = without_credentials(url);
+        assert_eq!(
+            stripped,
+            "/videos/abc/master.m3u8?DeviceId=d&PlaySessionId=p&TranscodeReasons=VideoCodecNotSupported%2CAudioCodecNotSupported"
+        );
+        assert_eq!(
+            query_value(&stripped, "transcodereasons").as_deref(),
+            Some("VideoCodecNotSupported,AudioCodecNotSupported")
+        );
+        assert_eq!(query_value(&stripped, "Missing"), None);
+        assert_eq!(without_credentials("/plain"), "/plain");
+    }
+
+    #[test]
+    fn reports_name_the_stream() -> anyhow::Result<()> {
+        let stream = StreamIdentity {
+            method: PlayMethod::Transcode,
+            media_source_id: Some("source".into()),
+            play_session_id: Some("session".into()),
+        };
+        let body = report("item", 1.5, true, &stream)?;
+        assert_eq!(body["PlayMethod"], "Transcode");
+        assert_eq!(body["PlaySessionId"], "session");
+        assert_eq!(body["MediaSourceId"], "source");
+        assert_eq!(body["PositionTicks"], 15_000_000);
+        let direct = report("item", 0.0, false, &StreamIdentity::default())?;
+        assert_eq!(direct["PlayMethod"], "DirectPlay");
+        assert!(direct.get("PlaySessionId").is_none());
+        Ok(())
     }
 
     #[test]

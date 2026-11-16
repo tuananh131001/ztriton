@@ -2,6 +2,7 @@
 
 use super::login::{LoggedIn, LoginView};
 use super::player_view::PlayerView;
+use super::settings_view::SettingsView;
 use super::text_input::{self, TextInput};
 use super::*;
 use gpui::{
@@ -15,7 +16,7 @@ use ztriton::jellyfin::{Item, Jellyfin, SearchResults};
 use ztriton::keychain::{self, SavedLogin};
 use ztriton::resume::ResumeStore;
 
-actions!(ztriton, [Back, Quit, ToggleFullscreen, SignOut, OpenSearch]);
+actions!(ztriton, [Back, Quit, ToggleFullscreen, SignOut, OpenSearch, OpenSettings]);
 
 #[derive(Clone)]
 enum Screen {
@@ -28,6 +29,7 @@ enum Screen {
     },
     Player(Entity<PlayerView>),
     Search(Entity<SearchState>),
+    Settings(Entity<SettingsView>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -427,6 +429,26 @@ impl ZtritonApp {
         cx.notify();
     }
 
+    fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        if self.login.is_some() || self.jf.is_none() {
+            return;
+        }
+        if matches!(self.stack.last(), Some(Screen::Player(_))) {
+            return;
+        }
+        // One Settings screen at most: a second copy would save over the first's changes.
+        if let Some(index) = self.stack.iter().position(|screen| matches!(screen, Screen::Settings(_))) {
+            self.stack.truncate(index + 1);
+            window.focus(&self.focus);
+            cx.notify();
+            return;
+        }
+        let settings = cx.new(SettingsView::new);
+        window.focus(&self.focus);
+        self.stack.push(Screen::Settings(settings));
+        cx.notify();
+    }
+
     fn search_query_changed(&mut self, input: &Entity<TextInput>, cx: &mut Context<Self>) {
         let search = self.stack.iter().find_map(|screen| match screen {
             Screen::Search(search) if search.read(cx).input == *input => Some(search.clone()),
@@ -742,6 +764,20 @@ impl ZtritonApp {
             })
             .when(!can_back && self.jf.is_some(), |d| {
                 d.child(
+                    div()
+                        .id("settings")
+                        .px_3()
+                        .py_1()
+                        .rounded_md()
+                        .bg(surface_hi())
+                        .text_sm()
+                        .text_color(text_dim())
+                        .cursor_pointer()
+                        .hover(|s| s.bg(accent()).text_color(bg()))
+                        .child("Settings")
+                        .on_click(cx.listener(|this, _, window, cx| this.open_settings(&OpenSettings, window, cx))),
+                )
+                .child(
                     div()
                         .id("sign-out")
                         .px_3()
@@ -1149,6 +1185,7 @@ impl Render for ZtritonApp {
             Screen::Detail { item, .. } => format!("ztriton — {}", item.name),
             Screen::Player(_) => "ztriton — Playing".to_string(),
             Screen::Search(_) => "ztriton — Search".to_string(),
+            Screen::Settings(_) => "ztriton — Settings".to_string(),
         };
         self.fullscreen = window.is_fullscreen();
         if title != self.title {
@@ -1162,6 +1199,13 @@ impl Render for ZtritonApp {
             (None, Screen::Detail { item, resume_secs }) => self.render_detail(item, *resume_secs, cx),
             (None, Screen::Player(view)) => view.clone().into_any_element(),
             (None, Screen::Search(search)) => self.render_search(search, window, cx),
+            (None, Screen::Settings(settings)) => div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(self.header("Settings".into(), true, false, cx))
+                .child(div().flex_1().min_h_0().child(settings.clone()))
+                .into_any_element(),
         };
         // Login and the connecting/signing-out placeholder render no header, so
         // they get the fullscreen control as an overlay instead.
@@ -1172,6 +1216,7 @@ impl Render for ZtritonApp {
             .on_action(cx.listener(Self::back))
             .on_action(cx.listener(Self::sign_out))
             .on_action(cx.listener(Self::open_search))
+            .on_action(cx.listener(Self::open_settings))
             // Handled on the root view rather than via a global `cx.on_action`: during key
             // dispatch the window is already leased, so updating it from a global handler fails.
             .on_action(|_: &ToggleFullscreen, window, _| window.toggle_fullscreen())
