@@ -1,6 +1,7 @@
 pub mod app;
 pub mod login;
 pub mod player_view;
+pub mod settings_view;
 pub mod text_input;
 
 use gpui::{Hsla, RenderImage, rgb};

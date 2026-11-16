@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Playback settings (⌘, or **Settings** on Home): maximum resolution, bitrate (Auto runs a speed test before each play; Maximum is 360 Mbps), compatibility (Auto, Compatible, Direct Play, Custom) and Force HDR/DV transcode. They are sent to the server in one PlaybackInfo request when you press Play, and the server sends the file as-is or transcodes it to fit.
+- **Quality** menu in the player: change resolution or bitrate for the current video; the stream restarts at the same spot and the saved settings are unchanged.
+- Playback reports name the play method (Direct Play or Transcode) and play session, so the server's dashboard shows transcodes and stops them when playback ends.
+- Transcoded streams keep their text subtitles (embedded ones are fetched from the server as separate files); image subtitles such as PGS are not available while transcoding.
+
 ## 0.0.7 — 2026-11-15
 
 - Search movies, shows and episodes across all libraries: press ⌘F, click **Search** on Home or a library, or choose ztriton › Search…. Results appear as you type, grouped into Movies, Shows and Episodes, with filters for each group. Back from a result returns to the same search.
